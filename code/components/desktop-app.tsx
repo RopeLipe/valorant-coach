@@ -7,6 +7,7 @@ import { Badge } from "@ui/badge"
 import { Progress } from "@ui/progress"
 import { TrendingUp, TrendingDown, Target, Crosshair, Trophy, Activity, User, Settings, Home, BarChart3, History, BookOpen, Sparkles, ChevronRight, Minus, X, Zap, Shield, Sword, Map, Award, Brain } from "lucide-react"
 import { useState, useRef } from "react"
+import logoUrl from "../../logo.svg?url"
 
 export function DesktopApp() {
   const [selectedTab, setSelectedTab] = useState("home")
@@ -110,8 +111,8 @@ export function DesktopApp() {
     <div className="t-app t-window flex h-screen overflow-hidden">
       {/* Sidebar */}
       <div className="ml-5 w-16 t-sidebar flex flex-col items-center py-4 gap-2">
-        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-white to-gray-200 flex items-center justify-center mb-4 shadow-lg">
-          <Zap className="w-5 h-5 text-black" />
+        <div className="w-16 h-16 rounded-xl bg-black flex items-center justify-center mb-4 shadow-lg overflow-hidden">
+          <img src={logoUrl} alt="Logo" className="w-12 h-12 object-contain" />
         </div>
 
         <div className="flex flex-col gap-1 w-full px-1">
@@ -197,7 +198,7 @@ export function DesktopApp() {
           }}
         >
           <div className="flex items-center gap-6">
-            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-white to-gray-200 flex items-center justify-center shadow-lg">
+            <div className="w-16 h-16 rounded-xl bg-black flex items-center justify-center shadow-lg">
               <User className="w-7 h-7 text-black" />
             </div>
             <div>
