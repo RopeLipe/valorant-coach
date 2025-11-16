@@ -1,0 +1,82 @@
+{
+  "manifest_version": 1,
+  "type": "WebApp",
+  "meta": {
+    "name": "Valorant Coach Overwolf",
+    "author": "Z1n3x",
+    "version": "0.1.0",
+    "minimum-overwolf-version": "0.150.0",
+    "description": "In-game Valorant coach overlay with AI and voice.",
+    "dock_button_title": "Coach",
+    "icon": "icon.png",
+    "icon_gray": "icon_gray.png",
+    "launcher_icon": "desktop-icon.ico"
+  },
+  "permissions": ["GameInfo", "Hotkeys", "Profile"],
+  "data": {
+    "start_window": "background",
+    "windows": {
+      "main": {
+        "file": "dist/overlay.html",
+        "transparent": true,
+        "resizable": false,
+        "in_game_only": true,
+        "show_in_taskbar": false,
+        "topmost": true,
+        "focus_game_takeover": "ReleaseOnHidden",
+        "focus_game_takeover_release_hotkey": "toggle_app",
+        "size": { "width": 420, "height": 160 },
+        "min_size": { "width": 320, "height": 120 }
+      },
+      "admin": {
+        "file": "dist/admin.html",
+        "transparent": false,
+        "resizable": true,
+        "size": { "width": 1200, "height": 800 }
+      },
+      "background": {
+        "file": "dist/background.html",
+        "transparent": true,
+        "resizable": false,
+        "show_in_taskbar": false,
+        "is_background_page": true,
+        "size": { "width": 1, "height": 1 }
+      },
+      "desktop": {
+        "file": "dist/desktop.html",
+        "transparent": true,
+        "resizable": true,
+        "show_in_taskbar": true,
+        "desktop_only": true,
+        "size": { "width": 1200, "height": 800 },
+        "min_size": { "width": 900, "height": 600 }
+      }
+    },
+    "hotkeys": {
+      "toggle_app": {
+        "title": "Toggle Coach Overlay",
+        "action-type": "custom",
+        "default": "Ctrl+Alt+V"
+      },
+      "voice_command": {
+        "title": "Voice Command",
+        "action-type": "custom",
+        "default": "Ctrl+Alt+C"
+      },
+      "toggle_desktop": {
+        "title": "Toggle Desktop App",
+        "action-type": "custom",
+        "default": "Ctrl+Alt+D"
+      },
+      "toggle_settings": {
+        "title": "Toggle Settings",
+        "action-type": "custom",
+        "default": "Ctrl+Alt+S"
+      }
+    },
+    "game_targeting": {
+      "type": "dedicated",
+      "game_ids": [21640]
+    }
+    }
+}

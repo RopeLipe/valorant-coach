@@ -1,0 +1,76 @@
+:root {
+  --v-black: #000000;
+  --v-white: #ffffff;
+  --v-gray-100: #f4f4f4;
+  --v-gray-300: #d9d9d9;
+  --v-gray-600: #777777;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--v-white);
+  color: var(--v-black);
+  font-family: "Segoe UI", Inter, system-ui, -apple-system, Roboto, Arial, sans-serif;
+  overflow: hidden;
+}
+
+h1 { font-size: 28px; font-weight: 800; margin: 0; }
+h2 { font-size: 20px; font-weight: 700; margin: 0 0 12px; }
+h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; }
+p  { margin: 0 0 12px; color: var(--v-gray-600); }
+
+.app { min-height: 100vh; }
+.header { background: var(--v-black); color: var(--v-white); border-bottom: 2px solid var(--v-white); }
+.header-inner { max-width: 1200px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+.logo { display: flex; align-items: center; gap: 12px; }
+.vlogo { position: relative; width: 28px; height: 28px; }
+.vlogo::before { content: ""; position: absolute; inset: 0; background: var(--v-white); transform: rotate(45deg); }
+.vlogo::after { content: ""; position: absolute; inset: 4px; background: var(--v-black); transform: rotate(45deg); }
+.badge { background: var(--v-white); color: var(--v-black); padding: 6px 12px; border-radius: 6px; font-weight: 700; }
+.status { text-align: right; }
+.status-label { color: #cfcfcf; font-size: 12px; }
+.status-value { font-size: 12px; font-weight: 700; }
+.status-value.connected { color: #5bd65b; }
+.status-value.standby { color: #ffd966; }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.container { height: calc(100vh - 64px); overflow-y: auto; }
+.container::-webkit-scrollbar { width: 8px; }
+.container::-webkit-scrollbar-track { background: #efefef; border-radius: 10px; }
+.container::-webkit-scrollbar-thumb { background: #111; border-radius: 10px; border: 2px solid #efefef; }
+.container::-webkit-scrollbar-thumb:hover { background: #333; }
+.grid-3 { display: grid; grid-template-columns: 1fr; gap: 16px; }
+@media (min-width: 1024px) { .grid-3 { grid-template-columns: 2fr 1fr; } }
+
+.card { background: var(--v-white); border: 2px solid var(--v-black); border-radius: 12px; padding: 16px; }
+.card-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.divider-v { height: 8px; width: 48px; margin: 16px auto 0; position: relative; }
+.divider-v::before, .divider-v::after { content: ""; position: absolute; inset: 0; background: var(--v-black); transform: skewX(12deg); }
+.divider-v::after { transform: skewX(-12deg); }
+
+.status-bar { background: var(--v-black); color: var(--v-white); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+.status-row { display: flex; align-items: center; gap: 24px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+.dot.green { background: #5bd65b; }
+.dot.red { background: #ff5b5b; }
+.dot.yellow { background: #ffd966; }
+
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stat { background: var(--v-gray-100); border: 1px solid var(--v-gray-300); border-radius: 10px; padding: 12px; }
+.stat-label { font-size: 12px; color: var(--v-gray-600); margin-bottom: 6px; }
+.stat-value { font-size: 22px; font-weight: 800; }
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+.list-item { border: 2px solid var(--v-black); border-radius: 10px; padding: 12px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+.list-item:hover { background: #fafafa; }
+.list-item.active { background: #f0f0f0; }
+
+.tips { display: flex; flex-direction: column; gap: 8px; }
+.tip { display: flex; align-items: flex-start; gap: 8px; background: var(--v-gray-100); border-radius: 10px; padding: 10px; }
+.tip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--v-black); margin-top: 6px; flex-shrink: 0; }
+
+/* Window surface when transparent */
+.app { padding: 8px; }
+.app-surface { background: var(--v-white); border: 2px solid var(--v-black); border-radius: 16px; box-shadow: 0 16px 36px rgba(0,0,0,0.25); overflow: hidden; }

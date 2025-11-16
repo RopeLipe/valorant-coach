@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Valorant Coach - Admin</title>
+    <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.29.0"
+  }
+}
+</script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'gem-onyx': '#0f1923',
+              'gem-slate': '#1f2937',
+              'gem-mist': '#374151',
+              'gem-offwhite': '#f3f4f6',
+              'gem-teal': '#7ef5e2',
+              'gem-red': '#ff4655',
+            },
+            keyframes: {
+              'progress-stripes': {
+                'from': { backgroundPosition: '1rem 0' },
+                'to': { backgroundPosition: '0 0' },
+              },
+            },
+            animation: {
+              'progress-stripes': 'progress-stripes 1s linear infinite',
+            },
+          }
+        }
+      }
+    </script>
+  
+  <link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-gem-onyx">
+    <div id="root"></div>
+    <script type="module" src="/admin/index.tsx"></script>
+  </body>
+
+
+
+  
+</html>

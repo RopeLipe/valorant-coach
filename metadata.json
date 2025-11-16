@@ -1,0 +1,5 @@
+{
+  "name": "Valorant Coach",
+  "description": "Get personalized Valorant coaching by uploading your gameplay data. This app uses FileSearch to analyze your VOD reviews, match history, and performance stats, then provides concise, actionable feedback to help you improve your skills.",
+  "requestFramePermissions": []
+}
