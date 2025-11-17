@@ -71,9 +71,11 @@ function toggleMain() {
       if (vis) {
         overlaySuppressed = true;
         overwolf.windows.hide(w.id);
+        forwardToMain({ type: 'overlay_hidden' });
       } else {
         overlaySuppressed = false;
         overwolf.windows.restore(w.id, () => overwolf.windows.bringToFront(w.id));
+        forwardToMain({ type: 'overlay_shown' });
       }
     });
   });
@@ -223,6 +225,7 @@ overwolf.games.onGameInfoUpdated.addListener((e: any) => {
 
 try {
   overwolf.settings.hotkeys.onPressed.addListener((e: any) => {
+    forwardToMain({ type: 'hotkey_pressed', data: { name: e?.name } })
     if (e && e.name === 'toggle_app') toggleMain();
     if (e && e.name === 'toggle_desktop') {
       if (!valorantActive) {

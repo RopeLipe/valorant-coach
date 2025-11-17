@@ -9,6 +9,7 @@ type ChatMessage = { role: 'user' | 'model'; parts: Array<{ text: string }> }
 export default function OverlayApp() {
   const [overlayInfo, setOverlayInfo] = useState<any>({})
   const [overlayAiQueue, setOverlayAiQueue] = useState<string[]>([])
+  const [debugLog, setDebugLog] = useState<string[]>([])
   const [scale, setScale] = useState(1)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const storeIdRef = useRef<string>('')
@@ -48,6 +49,10 @@ export default function OverlayApp() {
         const data = typeof raw === 'string' ? JSON.parse(raw) : raw
         if (!data || data.source !== 'valorant') return
         const payload = data.payload
+        try { setDebugLog((arr) => [
+          `${new Date().toLocaleTimeString()} ${payload?.type || 'unknown'}`,
+          ...arr
+        ].slice(0, 50)) } catch {}
         if (payload?.type === 'info_update') {
           const info = payload.data?.info
           setOverlayInfo(info || {})
@@ -143,7 +148,14 @@ export default function OverlayApp() {
       const question = result.text.trim()
       if (!question) return
       await queuePrompt(question)
-    } catch {}
+    } catch {
+      try {
+        setOverlayAiQueue(["Voice input not available. Open Overwolf Hotkeys to configure or use text mode."])
+        setSettingsTrigger((n) => n + 1)
+        const ow: any = (window as any).overwolf
+        ow?.utils?.openUrl?.('overwolf://settings/games-overlay?hotkey=voice_command&gameId=21640')
+      } catch {}
+    }
     finally { setListening(false) }
   }
 
@@ -152,6 +164,7 @@ export default function OverlayApp() {
       hotkey={hotkey}
       mode={responseMode}
       aiText={overlayAiQueue[0] || ''}
+      debugLog={debugLog}
       onModeChange={(m) => setResponseMode(m)}
       voiceVolume={voiceVolume}
       voiceRate={voiceRate}

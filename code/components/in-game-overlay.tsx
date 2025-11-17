@@ -6,7 +6,7 @@ import { Collapsible, CollapsibleContent } from "@ui/collapsible"
 import { ScrollArea } from "@ui/scroll-area"
 import { Slider } from "@ui/slider"
 
-export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', aiText='', onModeChange, voiceVolume=1, voiceRate=1, onVoiceVolumeChange, onVoiceRateChange, autoSpeakOnKill=true, onAutoSpeakOnKillChange, gameData, settingsTrigger=0, settingsHotkey }: { listening?: boolean; onToggle?: (next: boolean) => void; hotkey?: string; mode?: 'speech' | 'text' | 'both'; aiText?: string; onModeChange?: (m: 'speech' | 'text' | 'both') => void; voiceVolume?: number; voiceRate?: number; onVoiceVolumeChange?: (v: number) => void; onVoiceRateChange?: (v: number) => void; autoSpeakOnKill?: boolean; onAutoSpeakOnKillChange?: (v: boolean) => void; gameData?: { map: string; agent: string; allies: string[]; enemies: string[] }; settingsTrigger?: number; settingsHotkey?: string }) {
+export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', aiText='', onModeChange, voiceVolume=1, voiceRate=1, onVoiceVolumeChange, onVoiceRateChange, autoSpeakOnKill=true, onAutoSpeakOnKillChange, gameData, settingsTrigger=0, settingsHotkey, debugLog=[] }: { listening?: boolean; onToggle?: (next: boolean) => void; hotkey?: string; mode?: 'speech' | 'text' | 'both'; aiText?: string; onModeChange?: (m: 'speech' | 'text' | 'both') => void; voiceVolume?: number; voiceRate?: number; onVoiceVolumeChange?: (v: number) => void; onVoiceRateChange?: (v: number) => void; autoSpeakOnKill?: boolean; onAutoSpeakOnKillChange?: (v: boolean) => void; gameData?: { map: string; agent: string; allies: string[]; enemies: string[] }; settingsTrigger?: number; settingsHotkey?: string; debugLog?: string[] }) {
   const [isListening, setIsListening] = useState(listening)
   const [currentTip, setCurrentTip] = useState(0)
   const [isFading, setIsFading] = useState(false)
@@ -15,7 +15,7 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
   const containerRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [panelType, setPanelType] = useState<'settings' | 'answer' | null>(null)
+  const [panelType, setPanelType] = useState<'settings' | 'answer' | 'debug' | null>(null)
 
   const suggestions = [
     "Ask about enemy positions",
@@ -68,11 +68,15 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
             <div className="flex-1 min-w-0">
               <div className="text-sm text-white font-medium whitespace-nowrap">{mode !== 'speech' && aiText ? aiText : suggestions[currentTip]}</div>
               <div className="text-[10px] text-white/50 mt-0.5 tracking-wide">Press {hotkey || 'Ctrl+Alt+C'} to Speak to Me</div>
-              <div className="mt-1">
+              <div className="mt-1 flex items-center gap-1">
                 <button
                   className="px-2 py-0.5 rounded-full text-[10px] bg-white/5 text-white/70 hover:bg-white/10 hover:text-white pointer-events-auto"
                   onClick={() => { setPanelType('settings'); setPanelOpen(true) }}
                 >Settings</button>
+                <button
+                  className="px-2 py-0.5 rounded-full text-[10px] bg-white/5 text-white/70 hover:bg-white/10 hover:text-white pointer-events-auto"
+                  onClick={() => { setPanelType('debug'); setPanelOpen(true) }}
+                >Debug</button>
               </div>
             </div>
             <div className="w-10 h-10" />
@@ -184,6 +188,21 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
                     <ScrollArea className="max-h-40">
                       <div className="text-sm text-white leading-snug whitespace-pre-wrap">
                         {aiText}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+                {panelType === 'debug' && (
+                  <div className="px-4 py-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-white/70">Debug Log</div>
+                      <button className="px-2 py-1 rounded-full text-[11px] bg-white text-black font-semibold" onClick={() => { setPanelOpen(false); setPanelType(null) }}>Close</button>
+                    </div>
+                    <ScrollArea className="max-h-40">
+                      <div className="text-[11px] text-white/70 space-y-1">
+                        {debugLog.map((line, idx) => (
+                          <div key={idx}>{line}</div>
+                        ))}
                       </div>
                     </ScrollArea>
                   </div>
