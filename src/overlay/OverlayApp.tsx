@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { InGameOverlay } from '@code/components/in-game-overlay'
 import * as voice from '@/services/voice'
 import * as geminiService from '@/services/geminiFileSearch'
@@ -42,7 +42,7 @@ export default function OverlayApp() {
     try { geminiService.initialize() } catch {}
   }, [])
 
-  const parseValorantPayload = (raw: any) => {
+  const parseValorantPayload = useCallback((raw: any) => {
     const tryParse = (value: any): any => {
       if (!value) return null
       if (value.source === 'valorant') return value
@@ -56,9 +56,62 @@ export default function OverlayApp() {
     }
     const parsed = tryParse(raw)
     return parsed?.source === 'valorant' ? parsed.payload : null
-  }
+  }, [])
 
-  const handleValorantPayload = (payload: any) => {
+  const queuePrompt = useCallback(async (hint: string) => {
+    try {
+      const prompt = buildCompositePrompt(hint)
+      const res = await geminiService.fileSearch(storeIdRef.current || '', prompt)
+      const text = (res.text || '').trim()
+      if (responseMode !== 'speech') {
+        setOverlayAiQueue(text ? [text] : [])
+      } else {
+        setOverlayAiQueue([])
+      }
+      if (responseMode !== 'text' && text) {
+        try { voice.speak(text, { rate: voiceRate, volume: voiceVolume }) } catch {}
+      }
+    } catch {}
+  }, [responseMode, voiceRate, voiceVolume, overlayInfo])
+
+  const handleVoiceCommand = useCallback(async () => {
+    if (listeningRef.current) return
+    listeningRef.current = true
+    setListening(true)
+    try {
+      const result = await voice.startListening({
+        maxDurationMs: 8000,
+        preSpeechTimeoutMs: 1400,
+        silenceAfterSpeechMs: 600,
+        energyThreshold: 0.015
+      })
+      const question = result.text.trim()
+      if (!question) {
+        return
+      }
+      await queuePrompt(question)
+    } catch (err: any) {
+      const code = err?.code
+      if (code === 'cancelled' || code === 'already_listening') {
+        return
+      }
+      if (code === 'permission_denied' || code === 'device_missing') {
+        try {
+          setOverlayAiQueue(["Voice input not available. Open Overwolf Hotkeys to configure or use text mode."])
+          setSettingsTrigger((n) => n + 1)
+          const ow: any = (window as any).overwolf
+          ow?.utils?.openUrl?.('overwolf://settings/games-overlay?hotkey=voice_command&gameId=21640')
+        } catch {}
+        return
+      }
+      setOverlayAiQueue(["I couldn't catch that. Release and try again, or use text mode if the issue persists."])
+    } finally {
+      listeningRef.current = false
+      setListening(false)
+    }
+  }, [queuePrompt])
+
+  const handleValorantPayload = useCallback((payload: any) => {
     if (!payload) return
     try {
       setDebugLog((arr) => [
@@ -96,7 +149,7 @@ export default function OverlayApp() {
     if (payload?.type === 'game_detected') {
       try { setScale(1); setTheme('dark') } catch {}
     }
-  }
+  }, [autoSpeakOnKill, handleVoiceCommand, queuePrompt])
 
   useEffect(() => {
     const ow: any = (window as any).overwolf
@@ -118,7 +171,7 @@ export default function OverlayApp() {
       try { ow?.windows?.onMessageReceived?.removeListener(onOwMessage) } catch {}
       try { window.removeEventListener('message', onWindowMessage) } catch {}
     }
-  }, [autoSpeakOnKill])
+  }, [handleValorantPayload, parseValorantPayload])
 
   useEffect(() => {
     try {
@@ -160,60 +213,7 @@ export default function OverlayApp() {
     return `${userText}\nAgent: ${agent}\nAllies: ${allies || 'unknown'}\nEnemies: ${enemies || 'unknown'}\nMap: ${map}`
   }
 
-  const queuePrompt = async (hint: string) => {
-    try {
-      const prompt = buildCompositePrompt(hint)
-      const res = await geminiService.fileSearch(storeIdRef.current || '', prompt)
-      const text = (res.text || '').trim()
-      if (responseMode !== 'speech') {
-        setOverlayAiQueue([text])
-      } else {
-        setOverlayAiQueue([])
-      }
-      if (responseMode !== 'text') {
-        try { voice.speak(text, { rate: voiceRate, volume: voiceVolume }) } catch {}
-      }
-    } catch {}
-  }
-
-  const onAskAi = (text: string) => queuePrompt(text)
-
-  const handleVoiceCommand = async () => {
-    if (listeningRef.current) return
-    listeningRef.current = true
-    setListening(true)
-    try {
-      const result = await voice.startListening({
-        maxDurationMs: 8000,
-        preSpeechTimeoutMs: 1400,
-        silenceAfterSpeechMs: 600,
-        energyThreshold: 0.015
-      })
-      const question = result.text.trim()
-      if (!question) {
-        return
-      }
-      await queuePrompt(question)
-    } catch (err: any) {
-      const code = err?.code
-      if (code === 'cancelled' || code === 'already_listening') {
-        return
-      }
-      if (code === 'permission_denied' || code === 'device_missing') {
-        try {
-          setOverlayAiQueue(["Voice input not available. Open Overwolf Hotkeys to configure or use text mode."])
-          setSettingsTrigger((n) => n + 1)
-          const ow: any = (window as any).overwolf
-          ow?.utils?.openUrl?.('overwolf://settings/games-overlay?hotkey=voice_command&gameId=21640')
-        } catch {}
-        return
-      }
-      setOverlayAiQueue(["I couldn't catch that. Release and try again, or use text mode if the issue persists."])
-    } finally {
-      listeningRef.current = false
-      setListening(false)
-    }
-  }
+  
 
   return (
     <InGameOverlay

@@ -1,8 +1,19 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Mic } from "lucide-react"
 import { ScrollArea } from "@ui/scroll-area"
+
+const SUGGESTIONS = [
+  "Ask about enemy positions",
+  "Request ability combos",
+  "Get site execute tips",
+  "Learn optimal crosshair placement",
+  "Need help with agent selection?",
+  "Want to know the best gun for this round?",
+]
+
+const LISTENING_BARS = [18, 26, 22, 32, 20, 30, 24, 28]
 
 type OverlayProps = {
   listening?: boolean
@@ -21,26 +32,17 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
   const [isFading, setIsFading] = useState(false)
   const [settingsNotice, setSettingsNotice] = useState(false)
 
-  const suggestions = [
-    "Ask about enemy positions",
-    "Request ability combos",
-    "Get site execute tips",
-    "Learn optimal crosshair placement",
-    "Need help with agent selection?",
-    "Want to know the best gun for this round?",
-  ]
-
   useEffect(() => { setIsListening(listening) }, [listening])
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = window.setInterval(() => {
       setIsFading(true)
       setTimeout(() => {
-        setCurrentTip((prev) => (prev + 1) % suggestions.length)
+        setCurrentTip((prev: number) => (prev + 1) % SUGGESTIONS.length)
         setIsFading(false)
       }, 300)
     }, 4000)
-    return () => clearInterval(interval)
+    return () => window.clearInterval(interval)
   }, [])
 
   useEffect(() => {
@@ -51,22 +53,33 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
     }
   }, [settingsTrigger])
 
-  const hasAnswer = mode !== 'speech' && !!aiText?.trim()
+  const hasAnswer = useMemo(() => mode !== 'speech' && !!aiText?.trim(), [aiText, mode])
   const showCard = hasAnswer || isListening || settingsNotice
 
-  const title = (() => {
-    if (hasAnswer) return 'Valorant Coach'
-    if (settingsNotice) return 'Settings Available on Desktop'
-    if (isListening) return 'Listening…'
-    return 'Voice Command'
-  })()
-
-  const subtitle = (() => {
-    if (hasAnswer) return 'Fresh tactical insight tailored to your current match.'
-    if (settingsNotice) return `Use the Desktop Coach (hotkey ${settingsHotkey || 'Ctrl+Alt+S'}) to adjust voices, response mode, and automations.`
-    if (isListening) return `Hold ${hotkey || 'Ctrl+Alt+C'} while you speak. I stop as soon as you finish.`
-    return `Press ${hotkey || 'Ctrl+Alt+C'} to speak.`
-  })()
+  const { title, subtitle } = useMemo(() => {
+    if (hasAnswer) {
+      return {
+        title: 'Valorant Coach',
+        subtitle: 'Fresh tactical insight tailored to your current match.'
+      }
+    }
+    if (settingsNotice) {
+      return {
+        title: 'Settings Available on Desktop',
+        subtitle: `Use the Desktop Coach (hotkey ${settingsHotkey || 'Ctrl+Alt+S'}) to adjust voices, response mode, and automations.`
+      }
+    }
+    if (isListening) {
+      return {
+        title: 'Listening…',
+        subtitle: `Hold ${hotkey || 'Ctrl+Alt+C'} while you speak. I stop as soon as you finish.`
+      }
+    }
+    return {
+      title: 'Voice Command',
+      subtitle: `Press ${hotkey || 'Ctrl+Alt+C'} to speak.`
+    }
+  }, [hasAnswer, hotkey, isListening, settingsHotkey])
 
   const renderBody = () => {
     if (hasAnswer) {
@@ -90,14 +103,14 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
       return (
         <div className="space-y-2">
           <div className="flex items-center justify-center gap-1 h-10">
-            {[...Array(16)].map((_, i) => (
+            {Array.from({ length: 16 }).map((_, i) => (
               <div
                 key={i}
                 className="w-0.5 bg-white rounded-full animate-pulse transition-all"
                 style={{
-                  height: `${18 + Math.random() * 22}px`,
-                  animationDelay: `${i * 70}ms`,
-                  animationDuration: "0.5s",
+                  height: `${LISTENING_BARS[i % LISTENING_BARS.length]}px`,
+                  animationDelay: `${(i % LISTENING_BARS.length) * 70}ms`,
+                  animationDuration: "0.7s",
                 }}
               />
             ))}
@@ -117,7 +130,7 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
       )
     }
 
-    return <div className="text-[11px] text-white/70">{suggestions[currentTip]}</div>
+    return <div className="text-[11px] text-white/70">{SUGGESTIONS[currentTip]}</div>
   }
 
   return (
@@ -139,7 +152,7 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
                       isFading ? "opacity-0 translate-x-2" : "opacity-100 translate-x-0"
                     }`}
                   >
-                    {mode !== 'speech' && aiText ? aiText : suggestions[currentTip]}
+                    {mode !== 'speech' && aiText ? aiText : SUGGESTIONS[currentTip]}
                   </div>
                   <div className="text-[10px] text-white/50 mt-0.5 tracking-wide">Press {hotkey || 'Ctrl+Alt+C'} to Speak to Me</div>
                 </div>
