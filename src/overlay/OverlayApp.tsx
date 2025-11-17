@@ -41,56 +41,84 @@ export default function OverlayApp() {
     try { geminiService.initialize() } catch {}
   }, [])
 
+  const parseValorantPayload = (raw: any) => {
+    const tryParse = (value: any): any => {
+      if (!value) return null
+      if (value.source === 'valorant') return value
+      if (typeof value === 'string') {
+        try { return JSON.parse(value) } catch { return null }
+      }
+      if (typeof value === 'object') {
+        return tryParse(value.content ?? value.data ?? value.message ?? value.detail)
+      }
+      return null
+    }
+    const parsed = tryParse(raw)
+    return parsed?.source === 'valorant' ? parsed.payload : null
+  }
+
+  const handleValorantPayload = (payload: any) => {
+    if (!payload) return
+    try {
+      setDebugLog((arr) => [
+        `${new Date().toLocaleTimeString()} ${payload?.type || 'unknown'}`,
+        ...arr
+      ].slice(0, 50))
+    } catch {}
+    if (payload?.type === 'info_update') {
+      const info = payload.data?.info
+      setOverlayInfo(info || {})
+    }
+    if (payload?.type === 'new_events') {
+      const events = payload.data?.events || []
+      for (const ev of events) {
+        if (ev.name === 'kill' && autoSpeakOnKill) {
+          queuePrompt('Suggest quick post-kill positioning and utility follow-up.')
+        }
+      }
+    }
+    if (payload?.type === 'voice_command') {
+      setListening(true)
+      handleVoiceCommand()
+    }
+    if (payload?.type === 'toggle_settings') {
+      try { setSettingsTrigger((n) => n + 1) } catch {}
+    }
+    if (payload?.type === 'hotkey_unassigned') {
+      try { setSettingsTrigger((n) => n + 1) } catch {}
+    }
+    if (payload?.type === 'hotkey_changed') {
+      const name = payload?.data?.name
+      const binding = payload?.data?.binding
+      if (name === 'voice_command' && binding) setHotkey(binding)
+      if (name === 'toggle_settings' && binding) setSettingsHotkey(binding)
+    }
+    if (payload?.type === 'game_detected') {
+      try { setScale(1); setTheme('dark') } catch {}
+    }
+  }
+
   useEffect(() => {
     const ow: any = (window as any).overwolf
     const onOwMessage = (event: any) => {
       try {
-        const raw = event?.arguments?.message
-        const data = typeof raw === 'string' ? JSON.parse(raw) : raw
-        if (!data || data.source !== 'valorant') return
-        const payload = data.payload
-        try { setDebugLog((arr) => [
-          `${new Date().toLocaleTimeString()} ${payload?.type || 'unknown'}`,
-          ...arr
-        ].slice(0, 50)) } catch {}
-        if (payload?.type === 'info_update') {
-          const info = payload.data?.info
-          setOverlayInfo(info || {})
-        }
-        if (payload?.type === 'new_events') {
-          const events = payload.data?.events || []
-          for (const ev of events) {
-            if (ev.name === 'kill') {
-              if (autoSpeakOnKill) {
-                queuePrompt('Suggest quick post-kill positioning and utility follow-up.')
-              }
-            }
-          }
-        }
-        if (payload?.type === 'voice_command') {
-          setListening(true)
-          handleVoiceCommand()
-        }
-        if (payload?.type === 'toggle_settings') {
-          try { setSettingsTrigger((n) => n + 1) } catch {}
-        }
-        if (payload?.type === 'hotkey_unassigned') {
-          try { setSettingsTrigger((n) => n + 1) } catch {}
-        }
-        if (payload?.type === 'hotkey_changed') {
-          const name = payload?.data?.name
-          const binding = payload?.data?.binding
-          if (name === 'voice_command' && binding) setHotkey(binding)
-          if (name === 'toggle_settings' && binding) setSettingsHotkey(binding)
-        }
-        if (payload?.type === 'game_detected') {
-          try { setScale(1); setTheme('dark') } catch {}
-        }
+        const payload = parseValorantPayload(event)
+        if (payload) handleValorantPayload(payload)
+      } catch {}
+    }
+    const onWindowMessage = (event: MessageEvent) => {
+      try {
+        const payload = parseValorantPayload(event.data)
+        if (payload) handleValorantPayload(payload)
       } catch {}
     }
     try { ow?.windows?.onMessageReceived?.addListener(onOwMessage) } catch {}
-    return () => { try { ow?.windows?.onMessageReceived?.removeListener(onOwMessage) } catch {} }
-  }, [])
+    try { window.addEventListener('message', onWindowMessage) } catch {}
+    return () => {
+      try { ow?.windows?.onMessageReceived?.removeListener(onOwMessage) } catch {}
+      try { window.removeEventListener('message', onWindowMessage) } catch {}
+    }
+  }, [autoSpeakOnKill])
 
   useEffect(() => {
     try {

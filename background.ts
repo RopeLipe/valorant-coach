@@ -1,6 +1,9 @@
 let valorantActive = false;
 let overlaySuppressed = false;
 
+const OVERLAY_MARGIN_X = 50;
+const OVERLAY_MARGIN_Y = 32;
+
 const VALORANT_ID = 21640;
 const REQUIRED_FEATURES = [
   "me",
@@ -16,13 +19,12 @@ function isValorant(info: any) {
 
 function forwardToMain(payload: any) {
   try {
-    const message = JSON.stringify({ source: "valorant", payload });
-    obtain('main', (w) => {
-      try { overwolf.windows.sendMessage(w.id, message, () => {}); } catch {}
-    });
-    obtain('desktop', (w) => {
-      try { overwolf.windows.sendMessage(w.id, message, () => {}); } catch {}
-    });
+    const message = { source: "valorant", payload };
+    const send = (w: any) => {
+      try { overwolf.windows.sendMessage(w.id, "valorant-event", message, () => {}); } catch {}
+    };
+    obtain('main', send);
+    obtain('desktop', send);
   } catch {}
 }
 
@@ -48,9 +50,11 @@ function showMain() {
         const primary = monitors && monitors.primary ? monitors.primary : monitors?.monitors?.[0];
         const screenW = primary?.width || 1920;
         const corner = (typeof localStorage !== 'undefined' && localStorage.getItem('overlay_corner')) || 'right';
-        const overlayW = 420;
-        const x = corner === 'right' ? Math.max(16, screenW - overlayW - 24) : 16;
-        const y = 16;
+        const overlayW = 460;
+        const x = corner === 'right'
+          ? Math.max(OVERLAY_MARGIN_X, screenW - overlayW - OVERLAY_MARGIN_X)
+          : OVERLAY_MARGIN_X;
+        const y = OVERLAY_MARGIN_Y;
         overwolf.windows.changePosition(w.id, x, y, () => {});
       } catch {}
       overwolf.windows.bringToFront(w.id);
