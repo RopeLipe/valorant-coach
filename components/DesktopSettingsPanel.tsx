@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 interface MicrophoneDevice {
   deviceId: string
@@ -115,6 +115,8 @@ export default function DesktopSettingsPanel() {
   const [captureTarget, setCaptureTarget] = useState<keyof HotkeyState | null>(null)
   const [capturePrompt, setCapturePrompt] = useState<string | null>(null)
   const [hotkeyError, setHotkeyError] = useState<string | null>(null)
+  const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
+  const [isCheckingPermission, setIsCheckingPermission] = useState(false)
 
   const preferredMicStorageKey = "coach_preferred_mic_id"
 
@@ -125,7 +127,28 @@ export default function DesktopSettingsPanel() {
     } catch {}
   }, [])
 
-  const refreshMics = async () => {
+  const evaluatePermission = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+      setMicPermission('unknown')
+      return
+    }
+    try {
+      setIsCheckingPermission(true)
+      const status = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+      const nextState = status.state === 'denied' ? 'denied' : status.state === 'granted' ? 'granted' : 'unknown'
+      setMicPermission(nextState)
+      status.onchange = () => {
+        const derived = status.state === 'denied' ? 'denied' : status.state === 'granted' ? 'granted' : 'unknown'
+        setMicPermission(derived)
+      }
+    } catch {
+      setMicPermission('unknown')
+    } finally {
+      setIsCheckingPermission(false)
+    }
+  }, [])
+
+  const refreshMics = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
       setMicStatus("Microphone enumeration is not supported in this environment.")
       return
@@ -141,12 +164,20 @@ export default function DesktopSettingsPanel() {
         setMicStatus("No microphones detected. Grant permission or plug in a device.")
       } else {
         setMicStatus(`Found ${inputs.length} microphone${inputs.length === 1 ? "" : "s"}.`)
+        if (selectedMic && !inputs.find((mic) => mic.deviceId === selectedMic)) {
+          setSelectedMic(null)
+          try { localStorage.removeItem(preferredMicStorageKey) } catch {}
+          setMicStatus("Saved microphone missing. Reverting to Windows default.")
+        }
       }
     } catch (err) {
       console.error("Failed to enumerate microphones", err)
       setMicStatus("Unable to list microphones. Please grant microphone permission.")
+      if ((err as any)?.name === 'NotAllowedError') {
+        setMicPermission('denied')
+      }
     }
-  }
+  }, [preferredMicStorageKey, selectedMic])
 
   const requestMicPermission = async () => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -157,15 +188,24 @@ export default function DesktopSettingsPanel() {
       await navigator.mediaDevices.getUserMedia({ audio: true })
       await refreshMics()
       setMicStatus("Permission granted. Select your preferred microphone below.")
+      setMicPermission('granted')
     } catch (err) {
       console.error("Mic permission error", err)
       setMicStatus("Microphone permission denied. Allow access in Windows privacy settings.")
+      setMicPermission('denied')
     }
   }
 
   useEffect(() => {
+    evaluatePermission()
     refreshMics()
-  }, [])
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.addEventListener) return
+    const handler = () => refreshMics()
+    navigator.mediaDevices.addEventListener('devicechange', handler)
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.('devicechange', handler)
+    }
+  }, [evaluatePermission, refreshMics])
 
   const handleMicChange = (id: string) => {
     setSelectedMic(id)
@@ -292,6 +332,9 @@ export default function DesktopSettingsPanel() {
             <button className="text-xs text-white/70 hover:text-white" onClick={refreshMics}>Refresh</button>
           </div>
           <p className="text-xs text-white/60 mt-1">Pick which microphone feeds voice prompts. This selection is shared with the in-game overlay.</p>
+          <div className="mt-2 text-xs text-white/60">
+            Permission status: {isCheckingPermission ? 'Checking…' : micPermission === 'granted' ? 'Granted' : micPermission === 'denied' ? 'Denied via Windows/Overwolf' : 'Unknown'}
+          </div>
           <select
             className="w-full mt-3 bg-white/10 border border-white/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/40"
             value={selectedMic || ""}

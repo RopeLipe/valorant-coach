@@ -2,6 +2,20 @@ import { transcribeAudio } from "./speechToText"
 
 export type STTResult = { text: string }
 
+type VoiceErrorCode =
+  | 'already_listening'
+  | 'permission_denied'
+  | 'device_missing'
+  | 'unsupported'
+  | 'cancelled'
+  | 'unknown'
+
+const asVoiceError = (code: VoiceErrorCode, message?: string) => {
+  const error = new Error(message || code)
+  ;(error as any).code = code
+  return error
+}
+
 const MIC_STORAGE_KEY = "coach_preferred_mic_id"
 
 let recorder: MediaRecorder | null = null
@@ -35,7 +49,7 @@ type ListenOptions = {
 
 export async function startListening(options?: ListenOptions): Promise<STTResult> {
   if (recorder) {
-    throw new Error("already_listening")
+    throw asVoiceError('already_listening')
   }
 
   if (supportsMediaRecorder()) {
@@ -53,7 +67,19 @@ async function recordAndTranscribe(options?: ListenOptions): Promise<STTResult> 
     ? { audio: { deviceId: { exact: preferredId } } }
     : { audio: true }
 
-  mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+  } catch (err: any) {
+    const name = err?.name
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      throw asVoiceError('permission_denied', err?.message)
+    }
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+      try { localStorage.removeItem(MIC_STORAGE_KEY) } catch {}
+      throw asVoiceError('device_missing', err?.message)
+    }
+    throw asVoiceError('unknown', err?.message)
+  }
   chunks = []
   cancelled = false
 
@@ -62,7 +88,7 @@ async function recordAndTranscribe(options?: ListenOptions): Promise<STTResult> 
       recorder = new MediaRecorder(mediaStream!, { mimeType: "audio/webm" })
     } catch (err) {
       cleanupRecorder()
-      reject(err instanceof Error ? err : new Error(String(err)))
+      reject(err instanceof Error ? err : asVoiceError('unknown', String(err)))
       return
     }
 
@@ -74,16 +100,14 @@ async function recordAndTranscribe(options?: ListenOptions): Promise<STTResult> 
 
     recorder.onerror = (event: any) => {
       cleanupRecorder()
-      reject(new Error(event?.error || "recorder_error"))
+      reject(asVoiceError('unknown', event?.error || "recorder_error"))
     }
 
     recorder.onstop = async () => {
       const blob = new Blob(chunks, { type: recorder?.mimeType || "audio/webm" })
       cleanupRecorder()
       if (cancelled) {
-        const err: any = new Error("cancelled")
-        err.code = "cancelled"
-        reject(err)
+        reject(asVoiceError('cancelled'))
         return
       }
       if (silenceStop && !speechDetected) {
@@ -96,7 +120,7 @@ async function recordAndTranscribe(options?: ListenOptions): Promise<STTResult> 
         const text = await transcribeAudio(blob)
         resolve({ text })
       } catch (err) {
-        reject(err instanceof Error ? err : new Error(String(err)))
+        reject(err instanceof Error ? err : asVoiceError('unknown', String(err)))
       }
     }
 
@@ -114,7 +138,7 @@ function legacySpeechRecognition(): Promise<STTResult> {
   return new Promise((resolve, reject) => {
     const Rec = fallbackRecognition()
     if (!Rec) {
-      reject(new Error('SpeechRecognition unavailable'))
+      reject(asVoiceError('unsupported', 'SpeechRecognition unavailable'))
       return
     }
     const rec = new Rec()
@@ -125,7 +149,7 @@ function legacySpeechRecognition(): Promise<STTResult> {
       const t = e.results?.[0]?.[0]?.transcript || ''
       resolve({ text: t })
     }
-    rec.onerror = (e: any) => reject(new Error(e.error || 'stt_error'))
+    rec.onerror = (e: any) => reject(asVoiceError('unknown', e.error || 'stt_error'))
     rec.onend = () => {}
     rec.start()
   })

@@ -195,15 +195,20 @@ export default function OverlayApp() {
       }
       await queuePrompt(question)
     } catch (err: any) {
-      if (err?.code === 'cancelled') {
+      const code = err?.code
+      if (code === 'cancelled' || code === 'already_listening') {
         return
       }
-      try {
-        setOverlayAiQueue(["Voice input not available. Open Overwolf Hotkeys to configure or use text mode."])
-        setSettingsTrigger((n) => n + 1)
-        const ow: any = (window as any).overwolf
-        ow?.utils?.openUrl?.('overwolf://settings/games-overlay?hotkey=voice_command&gameId=21640')
-      } catch {}
+      if (code === 'permission_denied' || code === 'device_missing') {
+        try {
+          setOverlayAiQueue(["Voice input not available. Open Overwolf Hotkeys to configure or use text mode."])
+          setSettingsTrigger((n) => n + 1)
+          const ow: any = (window as any).overwolf
+          ow?.utils?.openUrl?.('overwolf://settings/games-overlay?hotkey=voice_command&gameId=21640')
+        } catch {}
+        return
+      }
+      setOverlayAiQueue(["I couldn't catch that. Release and try again, or use text mode if the issue persists."])
     } finally {
       listeningRef.current = false
       setListening(false)
