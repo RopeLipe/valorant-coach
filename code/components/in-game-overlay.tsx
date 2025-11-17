@@ -3,14 +3,23 @@
 import { useState, useEffect } from "react"
 import { Mic } from "lucide-react"
 import { ScrollArea } from "@ui/scroll-area"
-import { Slider } from "@ui/slider"
 
-export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', aiText='', onModeChange, voiceVolume=1, voiceRate=1, onVoiceVolumeChange, onVoiceRateChange, autoSpeakOnKill=true, onAutoSpeakOnKillChange, gameData, settingsTrigger=0, settingsHotkey, debugLog=[] }: { listening?: boolean; onToggle?: (next: boolean) => void; hotkey?: string; mode?: 'speech' | 'text' | 'both'; aiText?: string; onModeChange?: (m: 'speech' | 'text' | 'both') => void; voiceVolume?: number; voiceRate?: number; onVoiceVolumeChange?: (v: number) => void; onVoiceRateChange?: (v: number) => void; autoSpeakOnKill?: boolean; onAutoSpeakOnKillChange?: (v: boolean) => void; gameData?: { map: string; agent: string; allies: string[]; enemies: string[] }; settingsTrigger?: number; settingsHotkey?: string; debugLog?: string[] }) {
+type OverlayProps = {
+  listening?: boolean
+  onToggle?: (next: boolean) => void
+  hotkey?: string
+  mode?: 'speech' | 'text' | 'both'
+  aiText?: string
+  gameData?: { map: string; agent: string; allies: string[]; enemies: string[] }
+  settingsTrigger?: number
+  settingsHotkey?: string
+}
+
+export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', aiText='', gameData, settingsTrigger=0, settingsHotkey }: OverlayProps) {
   const [isListening, setIsListening] = useState(listening)
   const [currentTip, setCurrentTip] = useState(0)
   const [isFading, setIsFading] = useState(false)
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [panelType, setPanelType] = useState<'settings' | 'answer' | 'debug' | null>(null)
+  const [settingsNotice, setSettingsNotice] = useState(false)
 
   const suggestions = [
     "Ask about enemy positions",
@@ -20,20 +29,6 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
     "Need help with agent selection?",
     "Want to know the best gun for this round?",
   ]
-
-  useEffect(() => {
-    if ((mode === 'text' || mode === 'both') && aiText && aiText.trim()) {
-      setPanelType('answer')
-      setPanelOpen(true)
-    }
-  }, [aiText, mode])
-
-  useEffect(() => {
-    if (settingsTrigger > 0) {
-      setPanelType('settings')
-      setPanelOpen(true)
-    }
-  }, [settingsTrigger])
 
   useEffect(() => { setIsListening(listening) }, [listening])
 
@@ -48,94 +43,33 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    if (settingsTrigger > 0) {
+      setSettingsNotice(true)
+      const timer = setTimeout(() => setSettingsNotice(false), 6000)
+      return () => clearTimeout(timer)
+    }
+  }, [settingsTrigger])
+
   const hasAnswer = mode !== 'speech' && !!aiText?.trim()
-  const showCard = hasAnswer || isListening || panelOpen
-  const isSettingsView = panelOpen && panelType === 'settings'
-  const isDebugView = panelOpen && panelType === 'debug'
-  const isAnswerView = panelOpen && panelType === 'answer'
+  const showCard = hasAnswer || isListening || settingsNotice
 
-  const closePanel = () => {
-    setPanelOpen(false)
-    setPanelType(null)
-  }
-
-  const primaryTitle = (() => {
-    if (isSettingsView) return 'Overlay Settings'
-    if (isDebugView) return 'Debug Console'
-    if (hasAnswer || isAnswerView) return 'Valorant Coach'
+  const title = (() => {
+    if (hasAnswer) return 'Valorant Coach'
+    if (settingsNotice) return 'Settings Available on Desktop'
     if (isListening) return 'Listening…'
     return 'Voice Command'
   })()
 
-  const primarySubtitle = (() => {
-    if (isSettingsView) return 'Choose speech, text, or both and fine-tune audio playback.'
-    if (isDebugView) return 'Latest overlay events and telemetry.'
-    if (hasAnswer || isAnswerView) return 'Fresh tactical insight tailored to your current match.'
-    if (isListening) return 'Stay still for a moment while I capture your question.'
-    return `Press ${hotkey || 'Ctrl+Alt+C'} to speak • Settings: ${settingsHotkey || 'Ctrl+Alt+S'}`
+  const subtitle = (() => {
+    if (hasAnswer) return 'Fresh tactical insight tailored to your current match.'
+    if (settingsNotice) return `Use the Desktop Coach (hotkey ${settingsHotkey || 'Ctrl+Alt+S'}) to adjust voices, response mode, and automations.`
+    if (isListening) return `Hold ${hotkey || 'Ctrl+Alt+C'} while you speak. I stop as soon as you finish.`
+    return `Press ${hotkey || 'Ctrl+Alt+C'} to speak.`
   })()
 
-  const renderPanelContent = () => {
-    if (isSettingsView) {
-      return (
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
-          <div>
-            <div className="text-xs font-semibold text-white/80 uppercase tracking-wide">Response Mode</div>
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              {(['speech', 'text', 'both'] as const).map((m) => (
-                <button
-                  key={m}
-                  className={`px-3 py-2 rounded-xl text-[11px] font-semibold transition ${
-                    mode === m ? 'bg-white text-black shadow' : 'bg-white/10 text-white/70 hover:bg-white/20'
-                  }`}
-                  onClick={() => onModeChange?.(m)}
-                >
-                  {m === 'speech' ? 'Voice' : m === 'text' ? 'Text' : 'Hybrid'}
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-white/60 mt-2">Decide how the coach answers when you hit your talk-to-AI key.</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <div className="text-xs font-semibold text-white/80 uppercase tracking-wide">Voice Volume</div>
-              <Slider value={[Math.round((voiceVolume ?? 1) * 100)]} min={0} max={100} onValueChange={(vals: number[]) => onVoiceVolumeChange?.((vals?.[0] || 0) / 100)} />
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-white/80 uppercase tracking-wide">Voice Speed</div>
-              <Slider value={[Math.round((voiceRate ?? 1) * 100)]} min={50} max={150} onValueChange={(vals: number[]) => onVoiceRateChange?.((vals?.[0] || 100) / 100)} />
-            </div>
-          </div>
-          <div className="flex items-center justify-between text-[12px] text-white/80">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" className="accent-white" checked={autoSpeakOnKill} onChange={(e) => onAutoSpeakOnKillChange?.(e.target.checked)} />
-              Auto speak after kills
-            </label>
-            <button className="px-3 py-1.5 rounded-full text-[11px] bg-white text-black font-semibold" onClick={closePanel}>Done</button>
-          </div>
-        </div>
-      )
-    }
-
-    if (isDebugView) {
-      return (
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
-          <ScrollArea className="max-h-40">
-            <div className="text-[11px] text-white/70 space-y-1 leading-relaxed">
-              {debugLog.length === 0 && <p className="text-white/40">No events captured yet.</p>}
-              {debugLog.map((line, idx) => (
-                <p key={idx} className="whitespace-pre-wrap">{line}</p>
-              ))}
-            </div>
-          </ScrollArea>
-          <div className="flex justify-end mt-3">
-            <button className="px-3 py-1.5 rounded-full text-[11px] bg-white text-black font-semibold" onClick={closePanel}>Close</button>
-          </div>
-        </div>
-      )
-    }
-
-    if (isAnswerView && hasAnswer) {
+  const renderBody = () => {
+    if (hasAnswer) {
       return (
         <div className="space-y-3">
           <div className="text-[11px] text-white/70">Map: <span className="text-white">{gameData?.map || 'unknown'}</span> • Agent: <span className="text-white">{gameData?.agent || 'unknown'}</span></div>
@@ -148,54 +82,42 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
               </div>
             </ScrollArea>
           </div>
-          <div className="flex justify-end">
-            <button className="px-3 py-1.5 rounded-full text-[11px] bg-white text-black font-semibold" onClick={closePanel}>Close</button>
-          </div>
-        </div>
-      )
-    }
-
-    if (hasAnswer) {
-      return (
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-3 max-h-40">
-          <ScrollArea className="max-h-32">
-            <div className="text-sm text-white/90 whitespace-pre-wrap leading-snug">
-              {aiText}
-            </div>
-          </ScrollArea>
         </div>
       )
     }
 
     if (isListening) {
       return (
-        <div className="flex items-center gap-3">
-          <div className="flex-1 flex items-center justify-center gap-1 h-10">
+        <div className="space-y-2">
+          <div className="flex items-center justify-center gap-1 h-10">
             {[...Array(16)].map((_, i) => (
               <div
                 key={i}
                 className="w-0.5 bg-white rounded-full animate-pulse transition-all"
                 style={{
-                  height: `${15 + Math.random() * 25}px`,
-                  animationDelay: `${i * 80}ms`,
-                  animationDuration: "0.6s",
+                  height: `${18 + Math.random() * 22}px`,
+                  animationDelay: `${i * 70}ms`,
+                  animationDuration: "0.5s",
                 }}
               />
             ))}
           </div>
-          <button
-            onClick={() => { setIsListening(false); onToggle?.(false) }}
-            className="flex-shrink-0 px-4 py-2 rounded-full bg-white/15 hover:bg-white/25 border border-white/50 text-[10px] font-semibold uppercase tracking-widest text-white"
-          >
-            Stop
-          </button>
+          <div className="text-[10px] text-white/65 text-center uppercase tracking-wide">
+            Hold {hotkey || 'Ctrl+Alt+C'} to talk · Release to send
+          </div>
         </div>
       )
     }
 
-    return (
-      <div className="text-[11px] text-white/70">{suggestions[currentTip]}</div>
-    )
+    if (settingsNotice) {
+      return (
+        <div className="text-[11px] text-white/75 leading-relaxed bg-white/5 border border-white/10 rounded-2xl p-3">
+          Desktop Coach is now open for configuration. Any overlay settings live there so this bubble can stay focused on intel.
+        </div>
+      )
+    }
+
+    return <div className="text-[11px] text-white/70">{suggestions[currentTip]}</div>
   }
 
   return (
@@ -232,19 +154,11 @@ export function InGameOverlay({ listening=false, onToggle, hotkey, mode='both', 
                     <Mic className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white font-semibold leading-snug">{primaryTitle}</div>
-                    <div className="text-[11px] text-white/60 mt-0.5 leading-relaxed">{primarySubtitle}</div>
+                    <div className="text-sm text-white font-semibold leading-snug">{title}</div>
+                    <div className="text-[11px] text-white/60 mt-0.5 leading-relaxed">{subtitle}</div>
                   </div>
-                  {panelOpen ? (
-                    <button
-                      onClick={closePanel}
-                      className="px-3 py-1 rounded-full text-[11px] bg-white/10 text-white/80 hover:bg-white/20 border border-white/20"
-                    >
-                      Close
-                    </button>
-                  ) : null}
                 </div>
-                {renderPanelContent()}
+                {renderBody()}
               </div>
             )}
           </div>

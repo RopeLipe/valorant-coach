@@ -1,4 +1,5 @@
 let valorantActive = false;
+let valorantInFocus = false;
 let overlaySuppressed = false;
 
 const OVERLAY_MARGIN_X = 50;
@@ -95,6 +96,18 @@ function showDesktop() {
       console.error('[OW] showDesktop failed', e);
     }
   });
+}
+
+function updateDesktopVisibility() {
+  if (!valorantActive) {
+    showDesktop();
+    return;
+  }
+  if (valorantInFocus) {
+    hideDesktop();
+  } else {
+    showDesktop();
+  }
 }
 
 function hideDesktop() {
@@ -197,13 +210,15 @@ function tryInitForValorant() {
   overwolf.games.getRunningGameInfo((info: any) => {
     if (isValorant(info)) {
       valorantActive = true;
+      valorantInFocus = Boolean(info?.isInFocus !== false);
       setFeatures();
       initListeners();
       forwardToMain({ type: "game_detected", data: info });
       if (!overlaySuppressed) { showMain(); }
-      hideDesktop();
+      updateDesktopVisibility();
     } else {
       valorantActive = false;
+      valorantInFocus = false;
       forwardToMain({ type: "no_game" });
       showDesktop();
     }
@@ -214,13 +229,15 @@ overwolf.games.onGameInfoUpdated.addListener((e: any) => {
   const gameInfo = e && e.gameInfo;
   if (isValorant(gameInfo)) {
     valorantActive = true;
+    valorantInFocus = Boolean(gameInfo?.isInFocus !== false);
     setFeatures();
     initListeners();
     forwardToMain({ type: "game_detected", data: gameInfo });
     if (!overlaySuppressed) { showMain(); }
-    hideDesktop();
+    updateDesktopVisibility();
   } else {
     valorantActive = false;
+    valorantInFocus = false;
     hideMain();
     showDesktop();
     forwardToMain({ type: "no_game" });
@@ -232,7 +249,7 @@ try {
     forwardToMain({ type: 'hotkey_pressed', data: { name: e?.name } })
     if (e && e.name === 'toggle_app') toggleMain();
     if (e && e.name === 'toggle_desktop') {
-      if (!valorantActive) {
+      if (!valorantActive || !valorantInFocus) {
         toggleDesktop();
       } else {
         forwardToMain({ type: 'ignored_toggle_desktop_in_game' })
@@ -243,7 +260,9 @@ try {
       forwardToMain({ type: 'voice_command' });
     }
     if (e && e.name === 'toggle_settings') {
-      try { showMain() } catch {}
+      if (!valorantActive || !valorantInFocus) {
+        try { showDesktop() } catch {}
+      }
       forwardToMain({ type: 'toggle_settings' });
     }
   });

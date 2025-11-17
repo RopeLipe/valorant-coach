@@ -11,6 +11,7 @@ import Spinner from './components/Spinner';
 import WelcomeScreen from './components/WelcomeScreen';
 import ChatInterface from './components/ChatInterface';
 import OverlayHUD from './overlay/OverlayHUD';
+import DesktopSettingsPanel from './components/DesktopSettingsPanel';
 import * as voice from './services/voice';
 
 // Use the persistent file search store from config
@@ -259,7 +260,10 @@ Map: ${map}`;
 
     return (
         <main className="h-screen bg-gem-onyx text-gem-offwhite">
-            {renderContent()}
+            <div className="flex h-full">
+                <div className="flex-1 overflow-auto">{renderContent()}</div>
+                <DesktopSettingsPanel />
+            </div>
         </main>
     );
 };

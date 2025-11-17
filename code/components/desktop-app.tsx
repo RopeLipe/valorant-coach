@@ -6,15 +6,50 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@ui/tabs"
 import { Badge } from "@ui/badge"
 import { Progress } from "@ui/progress"
 import { TrendingUp, TrendingDown, Target, Crosshair, Trophy, Activity, User, Settings, Home, BarChart3, History, BookOpen, Sparkles, ChevronRight, Minus, X, Zap, Shield, Sword, Map, Award, Brain } from "lucide-react"
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
+import DesktopSettingsPanel from "../../components/DesktopSettingsPanel"
 import logoUrl from "../../logo.svg?url"
 
 export function DesktopApp() {
   const [selectedTab, setSelectedTab] = useState("home")
   const [selectedSubTab, setSelectedSubTab] = useState("overview")
   const [expandedAgents, setExpandedAgents] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const topAgentsRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const parsePayload = (raw: any): any => {
+      if (!raw) return null
+      if (raw.source === "valorant" && raw.payload) return raw.payload
+      if (typeof raw === "string") {
+        try { return parsePayload(JSON.parse(raw)) } catch { return null }
+      }
+      if (typeof raw === "object") {
+        if (raw.payload && raw.source === "valorant") return raw.payload
+        if (raw.data) return parsePayload(raw.data)
+        if (raw.content) return parsePayload(raw.content)
+      }
+      return null
+    }
+
+    const handlePayload = (incoming: any) => {
+      const payload = parsePayload(incoming)
+      if (payload?.type === "toggle_settings" || payload?.type === "hotkey_unassigned") {
+        setSettingsOpen(true)
+      }
+    }
+
+    const ow: any = (window as any).overwolf
+    const windowListener = (event: MessageEvent) => handlePayload(event.data)
+    const owListener = (event: any) => handlePayload(event)
+    try { window.addEventListener("message", windowListener) } catch {}
+    try { ow?.windows?.onMessageReceived?.addListener(owListener) } catch {}
+
+    return () => {
+      try { window.removeEventListener("message", windowListener) } catch {}
+      try { ow?.windows?.onMessageReceived?.removeListener(owListener) } catch {}
+    }
+  }, [])
 
   const stats = {
     currentRank: "IMMORTAL 2",
@@ -108,7 +143,8 @@ export function DesktopApp() {
   ]
 
   return (
-    <div className="t-app t-window flex h-screen overflow-hidden">
+    <div className="relative h-screen">
+      <div className="t-app t-window flex h-screen overflow-hidden">
       {/* Sidebar */}
       <div className="ml-5 w-16 t-sidebar flex flex-col items-center py-4 gap-2">
         <div className="w-16 h-16 rounded-xl bg-black flex items-center justify-center mb-4 shadow-lg overflow-hidden">
@@ -175,6 +211,7 @@ export function DesktopApp() {
           variant="ghost"
           size="icon"
           className="w-12 h-12 rounded-xl text-white/60 hover:text-white hover:bg-white/10 hover:scale-105 transition-all duration-200"
+          onClick={() => setSettingsOpen(true)}
         >
           <Settings className="w-5 h-5" />
         </Button>
@@ -829,6 +866,30 @@ export function DesktopApp() {
               </Card>
             </div>
           )}
+        </div>
+      </div>
+      </div>
+      {settingsOpen && (
+        <div
+          className="absolute inset-0 bg-black/50 backdrop-blur-sm z-30"
+          onClick={() => setSettingsOpen(false)}
+        />
+      )}
+      <div
+        className={`absolute inset-y-0 right-0 z-40 w-[380px] transition-transform duration-300 ease-out ${
+          settingsOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="h-full bg-black/90 border-l border-white/10 shadow-[0_0_40px_rgba(0,0,0,0.6)] flex flex-col">
+          <DesktopSettingsPanel />
+          <div className="px-5 py-3 border-t border-white/10 flex justify-end bg-black/60">
+            <button
+              className="px-4 py-1.5 rounded-full border border-white/25 text-xs text-white/80 hover:bg-white/10"
+              onClick={() => setSettingsOpen(false)}
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

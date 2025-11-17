@@ -21,6 +21,7 @@ export default function OverlayApp() {
   const [listening, setListening] = useState<boolean>(false)
   const [settingsTrigger, setSettingsTrigger] = useState<number>(0)
   const [settingsHotkey, setSettingsHotkey] = useState<string>('Ctrl+Alt+S')
+  const listeningRef = useRef(false)
   const gameData = useMemo(() => {
     const info = overlayInfo || {}
     const mi = info.match_info || {}
@@ -78,7 +79,6 @@ export default function OverlayApp() {
       }
     }
     if (payload?.type === 'voice_command') {
-      setListening(true)
       handleVoiceCommand()
     }
     if (payload?.type === 'toggle_settings') {
@@ -125,7 +125,16 @@ export default function OverlayApp() {
       const ow: any = (window as any).overwolf
       ow?.settings?.hotkeys?.get((res: any) => {
         try {
-          const list = res?.success ? (res?.hotkeys || []) : []
+          const list: any[] = res?.success
+            ? (
+                Array.isArray(res?.hotkeys)
+                  ? res.hotkeys
+                  : [
+                      ...(Array.isArray(res?.globals) ? res.globals : []),
+                      ...(Array.isArray(res?.games?.[21640]) ? res.games[21640] : []),
+                    ]
+              )
+            : []
           const hk = list.find((h: any) => h?.name === 'voice_command')
           const val = hk?.binding || hk?.hotkey
           if (val) setHotkey(val)
@@ -170,21 +179,35 @@ export default function OverlayApp() {
   const onAskAi = (text: string) => queuePrompt(text)
 
   const handleVoiceCommand = async () => {
+    if (listeningRef.current) return
+    listeningRef.current = true
+    setListening(true)
     try {
-      setListening(true)
-      const result = await voice.startListening()
+      const result = await voice.startListening({
+        maxDurationMs: 8000,
+        preSpeechTimeoutMs: 1400,
+        silenceAfterSpeechMs: 600,
+        energyThreshold: 0.015
+      })
       const question = result.text.trim()
-      if (!question) return
+      if (!question) {
+        return
+      }
       await queuePrompt(question)
-    } catch {
+    } catch (err: any) {
+      if (err?.code === 'cancelled') {
+        return
+      }
       try {
         setOverlayAiQueue(["Voice input not available. Open Overwolf Hotkeys to configure or use text mode."])
         setSettingsTrigger((n) => n + 1)
         const ow: any = (window as any).overwolf
         ow?.utils?.openUrl?.('overwolf://settings/games-overlay?hotkey=voice_command&gameId=21640')
       } catch {}
+    } finally {
+      listeningRef.current = false
+      setListening(false)
     }
-    finally { setListening(false) }
   }
 
   return (
@@ -192,19 +215,15 @@ export default function OverlayApp() {
       hotkey={hotkey}
       mode={responseMode}
       aiText={overlayAiQueue[0] || ''}
-      debugLog={debugLog}
-      onModeChange={(m) => setResponseMode(m)}
-      voiceVolume={voiceVolume}
-      voiceRate={voiceRate}
-      onVoiceVolumeChange={(v) => setVoiceVolume(v)}
-      onVoiceRateChange={(v) => setVoiceRate(v)}
-      autoSpeakOnKill={autoSpeakOnKill}
-      onAutoSpeakOnKillChange={(v) => setAutoSpeakOnKill(v)}
       gameData={gameData}
       listening={listening}
       settingsTrigger={settingsTrigger}
       settingsHotkey={settingsHotkey}
-      onToggle={(next) => { if (next) handleVoiceCommand() }}
+      onToggle={(next) => {
+        if (!next) {
+          try { voice.cancelListening() } catch {}
+        }
+      }}
     />
   )
 }

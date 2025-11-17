@@ -37,6 +37,13 @@ export function initialize(apiKey?: string) {
     ai = new GoogleGenAI({ apiKey: key });
 }
 
+export function getClient(): GoogleGenAI {
+    if (!ai) {
+        initialize();
+    }
+    return ai;
+}
+
 async function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
