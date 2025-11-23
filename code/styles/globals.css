@@ -115,51 +115,90 @@
 }
 
 @layer base {
-  * { @apply border-border; }
-  body { @apply text-foreground font-sans; }
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply text-foreground font-sans;
+  }
 }
 
-html, body { height: 100%; overflow: hidden; background: transparent !important; }
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+}
 
 .scroll-modern {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.25) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
 }
+
 .scroll-modern::-webkit-scrollbar {
   width: 8px;
 }
+
 .scroll-modern::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .scroll-modern::-webkit-scrollbar-thumb {
-  background-color: rgba(255,255,255,0.25);
+  background-color: rgba(255, 255, 255, 0.25);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
+
 .scroll-modern::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255,255,255,0.4);
+  background-color: rgba(255, 255, 255, 0.4);
 }
 
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 
 @layer utilities {
-  .t-app { @apply bg-background text-foreground; }
-  .t-sidebar { @apply bg-background; }
-  .t-header { @apply bg-background/80 backdrop-blur-sm; }
-  .t-card { @apply bg-secondary/50 border border-border; }
-  .t-inset { @apply bg-secondary/50 border border-border; }
-  .t-window { border-radius: var(--radius-xl); overflow: hidden; background: var(--background); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 12px 28px rgba(0,0,0,0.45); }
-  .t-window { background-clip: padding-box; }
-  
+  .t-app {
+    @apply bg-background text-foreground;
+  }
+
+  .t-sidebar {
+    @apply bg-background;
+  }
+
+  .t-header {
+    @apply bg-background/80 backdrop-blur-sm;
+  }
+
+  .t-card {
+    @apply bg-secondary/50 border border-border;
+  }
+
+  .t-inset {
+    @apply bg-secondary/50 border border-border;
+  }
+
+  .t-window {
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    background: var(--background);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  }
+
+  .t-window {
+    background-clip: padding-box;
+  }
+
   .glass-effect {
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
@@ -167,20 +206,109 @@ html, body { height: 100%; overflow: hidden; background: transparent !important;
     border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .dashboard { height: calc(100vh - 5rem); }
-  .h-row { height: 8rem; }
-  .h-panel { height: 16rem; }
-  .h-panel-sm { height: 12rem; }
-  .no-scroll { overflow: hidden; }
-  .professional-text { font-weight: 600; letter-spacing: -0.025em; line-height: 1.2; }
-  .text-hero { font-weight: 800; letter-spacing: -0.02em; font-size: clamp(1rem, 1.6vw, 1.375rem); }
-  .text-stat { font-weight: 800; letter-spacing: -0.03em; font-size: clamp(1.75rem, 3.4vw, 2.625rem); line-height: 1; color: #fff; }
-  .text-label { font-weight: 800; font-size: 0.7rem; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.75); }
-  .text-value-strong { font-weight: 800; }
-  .snap-container { scroll-snap-type: y mandatory; scroll-padding-bottom: 5rem; }
-  .snap-section { scroll-snap-align: start; }
+  .glass-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  }
+
+  .glass-card:hover {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  }
+
+  .text-gradient {
+    background: linear-gradient(to right, #fff, #ccc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .text-gradient-red {
+    background: linear-gradient(to right, #ff4655, #ff8a95);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .dashboard {
+    height: calc(100vh - 5rem);
+  }
+
+  .h-row {
+    height: 8rem;
+  }
+
+  .h-panel {
+    height: 16rem;
+  }
+
+  .h-panel-sm {
+    height: 12rem;
+  }
+
+  .no-scroll {
+    overflow: hidden;
+  }
+
+  .professional-text {
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+  }
+
+  .text-hero {
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-size: clamp(1rem, 1.6vw, 1.375rem);
+  }
+
+  .text-stat {
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    font-size: clamp(1.75rem, 3.4vw, 2.625rem);
+    line-height: 1;
+    color: #fff;
+  }
+
+  .text-label {
+    font-weight: 800;
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .text-value-strong {
+    font-weight: 800;
+  }
+
+  .snap-container {
+    scroll-snap-type: y mandatory;
+    scroll-padding-bottom: 5rem;
+  }
+
+  .snap-section {
+    scroll-snap-align: start;
+  }
 }
 
 @layer base {
-  body.transparent-window { background: transparent; }
+  body.transparent-window {
+    background: transparent;
+  }
+}
+
+@keyframes shine {
+  0% {
+    background-position: 100%;
+  }
+
+  100% {
+    background-position: -100%;
+  }
+}
+
+.animate-shine {
+  animation: shine 5s linear infinite;
 }

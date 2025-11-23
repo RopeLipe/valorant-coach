@@ -3,6 +3,8 @@ import { InGameOverlay } from '@code/components/in-game-overlay'
 import * as voice from '@/services/voice'
 import * as geminiService from '@/services/geminiFileSearch'
 import { RAG_CONFIG } from '../../config/ragConfig'
+import { getAgentName } from '../utils/agentMapping'
+import { getMapName } from '../utils/valorantMappings'
 
 type ChatMessage = { role: 'user' | 'model'; parts: Array<{ text: string }> }
 
@@ -10,6 +12,7 @@ export default function OverlayApp() {
   const [overlayInfo, setOverlayInfo] = useState<any>({})
   const [overlayAiQueue, setOverlayAiQueue] = useState<string[]>([])
   const [debugLog, setDebugLog] = useState<string[]>([])
+  const [debugOpen, setDebugOpen] = useState(false)
   const [scale, setScale] = useState(1)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const storeIdRef = useRef<string>('')
@@ -22,6 +25,20 @@ export default function OverlayApp() {
   const [settingsTrigger, setSettingsTrigger] = useState<number>(0)
   const [settingsHotkey, setSettingsHotkey] = useState<string>('Ctrl+Alt+S')
   const listeningRef = useRef(false)
+
+  // Auto-clear AI response after user-configured duration
+  useEffect(() => {
+    if (overlayAiQueue.length > 0) {
+      const storedDuration = localStorage.getItem("coach_message_duration")
+      const duration = storedDuration ? parseInt(storedDuration, 10) : 15000
+
+      const timer = setTimeout(() => {
+        setOverlayAiQueue([])
+      }, duration)
+      return () => clearTimeout(timer)
+    }
+  }, [overlayAiQueue])
+
   const gameData = useMemo(() => {
     const info = overlayInfo || {}
     const mi = info.match_info || {}
@@ -40,6 +57,18 @@ export default function OverlayApp() {
   useEffect(() => {
     try { storeIdRef.current = RAG_CONFIG.defaultStoreId } catch {}
     try { geminiService.initialize() } catch {}
+    
+    // Warm up microphone permission
+    if (navigator.mediaDevices?.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          stream.getTracks().forEach(t => t.stop())
+          setDebugLog(prev => [`Microphone initialized successfully`, ...prev])
+        })
+        .catch(err => {
+          setDebugLog(prev => [`Microphone initialization failed: ${err.message}`, ...prev])
+        })
+    }
   }, [])
 
   const parseValorantPayload = useCallback((raw: any) => {
@@ -61,7 +90,41 @@ export default function OverlayApp() {
   const queuePrompt = useCallback(async (hint: string) => {
     try {
       const prompt = buildCompositePrompt(hint)
-      const res = await geminiService.fileSearch(storeIdRef.current || '', prompt)
+      
+      // Construct metadata filters based on game context
+      const info = overlayInfo || {}
+      const mi = info.match_info || {}
+      const rawMap = mi.map || ''
+      const rawAgent = (info.me || {}).agent || ''
+      const agentName = getAgentName(rawAgent)
+      const mapName = getMapName(rawMap)
+      
+      const filters: string[] = []
+      
+      // Normalize map
+      const maps = ['Haven', 'Bind', 'Split', 'Ascent', 'Icebox', 'Breeze', 'Fracture', 'Pearl', 'Lotus', 'Sunset', 'Abyss']
+      const foundMap = maps.find(m => mapName.toLowerCase().includes(m.toLowerCase()))
+      if (foundMap) {
+        filters.push(`map = '${foundMap}'`)
+      }
+      
+      // Normalize agent
+      const agents = ['Jett', 'Phoenix', 'Sage', 'Sova', 'Viper', 'Cypher', 'Reyna', 'Killjoy', 'Breach', 'Omen', 'Raze', 'Skye', 'Yoru', 'Astra', 'KAY/O', 'Chamber', 'Neon', 'Fade', 'Harbor', 'Gekko', 'Deadlock', 'Iso', 'Clove', 'Vyse', 'Tejo', 'Waylay']
+      const foundAgent = agents.find(a => agentName.toLowerCase().includes(a.toLowerCase()))
+      if (foundAgent) {
+        filters.push(`agent = '${foundAgent}'`)
+      }
+
+      // Always include general guides
+      filters.push(`type = 'guide'`)
+      filters.push(`category = 'fundamentals'`)
+      filters.push(`category = 'game_sense'`)
+
+      const options = {
+        metadataFilter: filters.length > 0 ? filters.join(' OR ') : undefined
+      }
+
+      const res = await geminiService.fileSearch(storeIdRef.current || '', prompt, options)
       const text = (res.text || '').trim()
       if (responseMode !== 'speech') {
         setOverlayAiQueue(text ? [text] : [])
@@ -80,10 +143,7 @@ export default function OverlayApp() {
     setListening(true)
     try {
       const result = await voice.startListening({
-        maxDurationMs: 8000,
-        preSpeechTimeoutMs: 1400,
-        silenceAfterSpeechMs: 600,
-        energyThreshold: 0.015
+        maxDurationMs: 8000
       })
       const question = result.text.trim()
       if (!question) {
@@ -97,14 +157,15 @@ export default function OverlayApp() {
       }
       if (code === 'permission_denied' || code === 'device_missing') {
         try {
-          setOverlayAiQueue(["Voice input not available. Open Overwolf Hotkeys to configure or use text mode."])
+          const msg = code === 'permission_denied' ? 'Microphone permission denied.' : 'No microphone found.'
+          setOverlayAiQueue([msg, "Open Overwolf Hotkeys to configure or use text mode."])
           setSettingsTrigger((n) => n + 1)
           const ow: any = (window as any).overwolf
           ow?.utils?.openUrl?.('overwolf://settings/games-overlay?hotkey=voice_command&gameId=21640')
         } catch {}
         return
       }
-      setOverlayAiQueue(["I couldn't catch that. Release and try again, or use text mode if the issue persists."])
+      setOverlayAiQueue([`Voice error: ${err?.message || 'Unknown'}`])
     } finally {
       listeningRef.current = false
       setListening(false)
@@ -121,7 +182,28 @@ export default function OverlayApp() {
     } catch {}
     if (payload?.type === 'info_update') {
       const info = payload.data?.info
-      setOverlayInfo(info || {})
+      if (info) {
+        // Debug: Log match_info keys to help diagnose missing data
+        if (info.match_info) {
+          const keys = Object.keys(info.match_info)
+          // Only log if there are keys we haven't seen or just periodically? 
+          // For now, just log it so user can see in debug panel.
+          // Filter out common spammy keys if needed, but seeing all is good.
+          setDebugLog((prev) => [`Match Info Update: ${keys.join(', ')}`, ...prev].slice(0, 50))
+        }
+
+        setOverlayInfo((prev: any) => {
+          const next = { ...prev }
+          for (const key in info) {
+            if (typeof info[key] === 'object' && info[key] !== null && !Array.isArray(info[key])) {
+              next[key] = { ...(next[key] || {}), ...info[key] }
+            } else {
+              next[key] = info[key]
+            }
+          }
+          return next
+        })
+      }
     }
     if (payload?.type === 'new_events') {
       const events = payload.data?.events || []
@@ -133,6 +215,14 @@ export default function OverlayApp() {
     }
     if (payload?.type === 'voice_command') {
       handleVoiceCommand()
+    }
+    if (payload?.type === 'voice_command_state') {
+      const state = payload.data?.state
+      if (state === 'down') {
+        handleVoiceCommand()
+      } else if (state === 'up') {
+        try { voice.endListening() } catch {}
+      }
     }
     if (payload?.type === 'toggle_settings') {
       try { setSettingsTrigger((n) => n + 1) } catch {}
@@ -199,6 +289,17 @@ export default function OverlayApp() {
     } catch {}
   }, [])
 
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && event.code === 'KeyD') {
+        event.preventDefault()
+        setDebugOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   const buildCompositePrompt = (userText: string) => {
     const info = overlayInfo || {}
     const mi = info.match_info || {}
@@ -206,29 +307,62 @@ export default function OverlayApp() {
     const roster = rosterKeys.map((k: string) => {
       try { const raw = mi[k]; return typeof raw === 'string' ? JSON.parse(raw) : raw } catch { return null }
     }).filter(Boolean) as any[]
-    const allies = roster.filter(r => r.teammate).map(r => r.character).join(', ')
-    const enemies = roster.filter(r => !r.teammate).map(r => r.character).join(', ')
-    const agent = (info.me || {}).agent || 'unknown'
-    const map = mi.map || 'unknown'
+    const allies = roster.filter(r => r.teammate).map(r => getAgentName(r.character)).join(', ')
+    const enemies = roster.filter(r => !r.teammate).map(r => getAgentName(r.character)).join(', ')
+    const agent = getAgentName((info.me || {}).agent || 'unknown')
+    const map = getMapName(mi.map || 'unknown')
     return `${userText}\nAgent: ${agent}\nAllies: ${allies || 'unknown'}\nEnemies: ${enemies || 'unknown'}\nMap: ${map}`
   }
+
+  const debugEntries = debugLog.length ? debugLog : ['No overlay events yet.']
 
   
 
   return (
-    <InGameOverlay
-      hotkey={hotkey}
-      mode={responseMode}
-      aiText={overlayAiQueue[0] || ''}
-      gameData={gameData}
-      listening={listening}
-      settingsTrigger={settingsTrigger}
-      settingsHotkey={settingsHotkey}
-      onToggle={(next) => {
-        if (!next) {
-          try { voice.cancelListening() } catch {}
-        }
-      }}
-    />
+    <>
+      <InGameOverlay
+        hotkey={hotkey}
+        mode={responseMode}
+        aiText={overlayAiQueue[0] || ''}
+        gameData={gameData}
+        listening={listening}
+        settingsTrigger={settingsTrigger}
+        settingsHotkey={settingsHotkey}
+        onToggle={(next) => {
+          if (!next) {
+            try { voice.cancelListening() } catch {}
+          }
+        }}
+      />
+      <div className="fixed left-4 bottom-4 z-50 pointer-events-auto select-none">
+        <button
+          onClick={() => setDebugOpen((open) => !open)}
+          className="px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 border border-white/30 text-white hover:bg-white/20 hover:border-white/60 transition"
+        >
+          {debugOpen ? 'Hide Debug' : 'Show Debug'}
+          {debugLog.length ? ` (${debugLog.length})` : ''}
+        </button>
+        {debugOpen && (
+          <div className="mt-2 w-72 max-h-64 overflow-auto rounded-2xl border border-white/20 bg-black/85 text-white/80 text-[11px] leading-relaxed shadow-2xl">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 text-white/70 uppercase tracking-wide text-[10px]">
+              <span>Overlay Debug</span>
+              <button
+                className="text-white/60 hover:text-white text-[10px]"
+                onClick={() => setDebugLog([])}
+              >
+                Clear
+              </button>
+            </div>
+            <ul className="px-3 py-2 space-y-1">
+              {debugEntries.map((entry, idx) => (
+                <li key={`${entry}-${idx}`} className="font-mono break-all">
+                  {entry}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </>
   )
 }

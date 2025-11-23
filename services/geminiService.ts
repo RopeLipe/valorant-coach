@@ -131,7 +131,7 @@ export async function uploadToRagStore(ragStoreName: string, file: File): Promis
 
         while (!op.done && attempts < maxAttempts) {
             await delay(1000);
-            op = await ai.operations.get({operation: op});
+            op = await ai.operations.get({ operation: op });
             attempts++;
         }
 
@@ -263,17 +263,17 @@ export async function fileSearch(ragStoreName: string, query: string): Promise<Q
 
     try {
         const response: GenerateContentResponse = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-flash-latest',
             contents: query,
             config: {
-                systemInstruction: "You are a professional Valorant coach. Your answers must be brief, concise, and actionable, with a full explanation but limited to a maximum of 3-4 sentences. Be encouraging but direct.",
+                systemInstruction: "You are a professional Valorant coach. Your answers must be extremely brief, concise, and actionable. Limit your response to a maximum of 2 short sentences. Focus on immediate tactical advice. Be encouraging but direct.",
                 tools: [
-                        {
-                            fileSearch: {
-                                fileSearchStoreNames: [`fileSearchStores/${ragStoreName}`],
-                            }
+                    {
+                        fileSearch: {
+                            fileSearchStoreNames: [`fileSearchStores/${ragStoreName}`],
                         }
-                    ]
+                    }
+                ]
             }
         });
 
@@ -308,7 +308,7 @@ export async function generateExampleQuestions(ragStoreName: string): Promise<st
     if (!ai) throw new Error("Gemini AI not initialized");
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-flash-latest',
             contents: "You are a professional Valorant coach. Based on the provided gameplay data (VOD reviews, match history, etc.), generate 4 short and practical example questions a player might ask to improve. Return the questions as a JSON array of strings. For example: [\"What could I have done better in round 5?\", \"How can I improve my crosshair placement based on this data?\"]",
             config: {
                 tools: [
@@ -320,7 +320,7 @@ export async function generateExampleQuestions(ragStoreName: string): Promise<st
                 ]
             }
         });
-        
+
         let jsonText = response.text.trim();
 
         const jsonMatch = jsonText.match(/```json\n([\s\S]*?)\n```/);
@@ -333,13 +333,13 @@ export async function generateExampleQuestions(ragStoreName: string): Promise<st
                 jsonText = jsonText.substring(firstBracket, lastBracket + 1);
             }
         }
-        
+
         const questions = JSON.parse(jsonText);
-        
+
         if (Array.isArray(questions) && questions.every(q => typeof q === 'string')) {
             return questions;
         }
-        
+
         console.warn("Received unexpected format for example questions:", questions);
         return [];
     } catch (error) {
@@ -381,4 +381,5 @@ export async function deleteRagStore(ragStoreName: string): Promise<void> {
             throw new Error(`Failed to delete RAG store "${ragStoreName}": ${err instanceof Error ? err.message : String(err)}`);
         }
     }
+
 }

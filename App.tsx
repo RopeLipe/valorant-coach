@@ -13,6 +13,7 @@ import ChatInterface from './components/ChatInterface';
 import OverlayHUD from './overlay/OverlayHUD';
 import DesktopSettingsPanel from './components/DesktopSettingsPanel';
 import * as voice from './services/voice';
+import { runDiagnostics, type DiagnosticResult } from './services/diagnostics';
 
 // Use the persistent file search store from config
 // This is configured in .env.local as VITE_RAG_STORE_ID
@@ -31,6 +32,8 @@ const App: React.FC = () => {
     const [overlayScale, setOverlayScale] = useState<number>(1);
     const [overlayTheme, setOverlayTheme] = useState<'dark' | 'light'>('dark');
     const [overlayAiQueue, setOverlayAiQueue] = useState<string[]>([]);
+    const [diagnostics, setDiagnostics] = useState<DiagnosticResult[]>([]);
+    const [diagnosticsRunning, setDiagnosticsRunning] = useState<boolean>(false);
     useEffect(() => {
         try {
             const storedCorner = localStorage.getItem('overlay_corner');
@@ -40,7 +43,29 @@ const App: React.FC = () => {
         } catch {}
     }, []);
     
-    const isApiKeySelected = !!import.meta.env.VITE_GEMINI_API_KEY;
+    const geminiApiKey = typeof import.meta !== 'undefined'
+        ? ((import.meta as any)?.env?.VITE_GEMINI_API_KEY || '')
+        : '';
+    const isApiKeySelected = !!geminiApiKey;
+
+    const runStartupDiagnostics = useCallback(async () => {
+        setDiagnosticsRunning(true);
+        try {
+            const results = await runDiagnostics();
+            setDiagnostics(results);
+        } catch (err) {
+            console.error('Diagnostics failed', err);
+        } finally {
+            setDiagnosticsRunning(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        runStartupDiagnostics();
+    }, [runStartupDiagnostics]);
+
+    const blockingDiagnostics = diagnostics.filter((item) => item.status === 'fail' && (item.blocking !== false));
+    const canStartSession = isApiKeySelected && blockingDiagnostics.length === 0;
 
     const handleError = (message: string, err: any) => {
         console.error(message, err);
@@ -113,12 +138,24 @@ const App: React.FC = () => {
                     agent: me?.agent ?? prev.agent,
                     player_name: me?.player_name ?? prev.player_name
                 }));
-                setOverlayInfo(info || {});
+                setOverlayInfo((prev: any) => {
+                    const next = { ...prev };
+                    if (info) {
+                        for (const key in info) {
+                            if (typeof info[key] === 'object' && info[key] !== null && !Array.isArray(info[key])) {
+                                next[key] = { ...(next[key] || {}), ...info[key] };
+                            } else {
+                                next[key] = info[key];
+                            }
+                        }
+                    }
+                    return next;
+                });
                 if (status === AppStatus.Chatting) {
                     const phase = mi?.round_phase;
                     if (phase === 'shopping') {
                         const prompt = `Provide buy recommendations for the upcoming round in Valorant. Map: ${mi?.map || gameContext.map || 'unknown'}. Team: ${mi?.team || gameContext.team || 'unknown'}. Agent: ${me?.agent || gameContext.agent || 'unknown'}.`;
-                        handleSendMessage(prompt);
+                        handleSendMessage(prompt, { includeContext: false });
                     }
                 }
             }
@@ -127,7 +164,7 @@ const App: React.FC = () => {
                 for (const ev of events) {
                     if (status === AppStatus.Chatting && ev.name === 'kill') {
                         const prompt = `Suggest mid-round tips after a kill in Valorant. Map: ${gameContext.map || 'unknown'}. Agent: ${gameContext.agent || 'unknown'}.`;
-                        handleSendMessage(prompt);
+                        handleSendMessage(prompt, { includeContext: false });
                     }
                 }
             }
@@ -150,6 +187,16 @@ const App: React.FC = () => {
             }
         } catch {}
     }, []);
+
+    const hasLiveContext = () => {
+        const info = overlayInfo || {};
+        const mi = info.match_info || {};
+        const rosterKeys = Object.keys(mi).filter((k: string) => k.startsWith('roster_'));
+        const hasRoster = rosterKeys.length > 0;
+        const agent = (info.me || {}).agent;
+        const map = mi.map;
+        return Boolean(agent || map || hasRoster);
+    };
 
     const buildCompositePrompt = (userText: string) => {
         const info = overlayInfo || {};
@@ -178,15 +225,20 @@ Map: ${map}`;
         setStatus(AppStatus.Welcome);
     };
 
-    const handleSendMessage = async (message: string) => {
+    const handleSendMessage = async (message: string, opts?: { includeContext?: boolean }) => {
         if (!activeRagStoreName) return;
 
-        const userMessage: ChatMessage = { role: 'user', parts: [{ text: message }] };
+        const includeContext = opts?.includeContext ?? true;
+        const finalPrompt = includeContext && hasLiveContext()
+            ? buildCompositePrompt(message)
+            : message;
+
+        const userMessage: ChatMessage = { role: 'user', parts: [{ text: finalPrompt }] };
         setChatHistory(prev => [...prev, userMessage]);
         setIsQueryLoading(true);
 
         try {
-            const result = await geminiService.fileSearch(activeRagStoreName, message);
+            const result = await geminiService.fileSearch(activeRagStoreName, finalPrompt);
             const modelMessage: ChatMessage = {
                 role: 'model',
                 parts: [{ text: result.text }],
@@ -220,7 +272,17 @@ Map: ${map}`;
                     </div>
                 );
             case AppStatus.Welcome:
-                 return <WelcomeScreen onStartChat={handleStartChat} isApiKeySelected={isApiKeySelected} />;
+                 return (
+                    <WelcomeScreen
+                        onStartChat={handleStartChat}
+                        isApiKeySelected={isApiKeySelected}
+                        diagnostics={diagnostics}
+                        diagnosticsRunning={diagnosticsRunning}
+                        onRunDiagnostics={runStartupDiagnostics}
+                        canStart={canStartSession}
+                        blockingIssues={blockingDiagnostics}
+                    />
+                );
             case AppStatus.PreparingChat:
                 return (
                     <div className="flex flex-col items-center justify-center h-full p-4 text-center">
@@ -231,7 +293,7 @@ Map: ${map}`;
             case AppStatus.Chatting:
                 // In-game: show only compact overlay; Out-of-game: show chat interface.
                 if ((overlayInfo && (overlayInfo.match_info || overlayInfo.me))) {
-                    return <OverlayHUD info={overlayInfo} scale={overlayScale} theme={overlayTheme} onPrompt={(t) => handleSendMessage(buildCompositePrompt(t))} aiSuggestions={overlayAiQueue} />
+                    return <OverlayHUD info={overlayInfo} scale={overlayScale} theme={overlayTheme} onPrompt={(t) => handleSendMessage(t)} aiSuggestions={overlayAiQueue} />
                 }
                 return (
                     <ChatInterface 
@@ -262,7 +324,11 @@ Map: ${map}`;
         <main className="h-screen bg-gem-onyx text-gem-offwhite">
             <div className="flex h-full">
                 <div className="flex-1 overflow-auto">{renderContent()}</div>
-                <DesktopSettingsPanel />
+                <DesktopSettingsPanel
+                    diagnostics={diagnostics}
+                    diagnosticsRunning={diagnosticsRunning}
+                    onRunDiagnostics={runStartupDiagnostics}
+                />
             </div>
         </main>
     );

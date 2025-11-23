@@ -279,7 +279,7 @@ export async function uploadToRagStore(
 
         while (!op.done && attempts < maxAttempts) {
             await delay(1000);
-            op = await ai.operations.get({operation: op});
+            op = await ai.operations.get({ operation: op });
             attempts++;
         }
 
@@ -376,7 +376,7 @@ export async function fileSearch(
             contents: query,
             config: {
                 systemInstruction: options?.systemInstruction ||
-                    "You are a professional Valorant coach. Your answers must be brief, concise, and actionable, with a full explanation but limited to a maximum of 3-4 sentences. Be encouraging but direct.",
+                    "You are a professional Valorant coach. Your answers must be extremely brief, concise, and actionable. Limit your response to a maximum of 2 short sentences. Focus on immediate tactical advice. Be encouraging but direct.",
                 tools: [
                     {
                         fileSearch: fileSearchConfig
@@ -561,3 +561,32 @@ export function extractMetadataFromFilename(filename: string): CustomMetadata[] 
 
     return metadata;
 }
+
+export async function analyzeMatchHistory(matches: any[]): Promise<string> {
+    if (!ai) throw new Error("Gemini AI not initialized");
+    if (!matches || matches.length === 0) return "No match data available to analyze.";
+
+    const prompt = `
+    You are an expert Valorant coach. Analyze the following recent match history for a player and provide 3 key insights:
+    1. A major strength demonstrated in these games.
+    2. A critical area for improvement.
+    3. A specific actionable tip for their next game.
+
+    Match Data:
+    ${JSON.stringify(matches.slice(0, 5), null, 2)}
+
+    Keep the response concise, encouraging, and tactical. Format as a bulleted list.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-flash-latest',
+            contents: prompt,
+        });
+        return response.text;
+    } catch (err) {
+        console.error("Analysis failed:", err);
+        return "Unable to analyze match history at this time.";
+    }
+}
+

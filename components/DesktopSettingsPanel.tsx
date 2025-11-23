@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import DiagnosticsChecklist from "./DiagnosticsChecklist"
+import type { DiagnosticResult } from "../services/diagnostics"
+import { X, Mic, Keyboard, Settings, Clock } from "lucide-react"
 
 interface MicrophoneDevice {
   deviceId: string
@@ -100,14 +103,24 @@ function notifyHotkeyChange(name: keyof HotkeyState, binding: string) {
     ow?.windows?.obtainDeclaredWindow?.('main', (res: any) => {
       try {
         if (res?.success && res.window?.id) {
-          ow.windows.sendMessage(res.window.id, 'valorant-event', payload, () => {})
+          ow.windows.sendMessage(res.window.id, 'valorant-event', payload, () => { })
         }
-      } catch {}
+      } catch { }
     })
-  } catch {}
+  } catch { }
 }
 
-export default function DesktopSettingsPanel() {
+interface DesktopSettingsPanelProps {
+  diagnostics: DiagnosticResult[]
+  diagnosticsRunning: boolean
+  onRunDiagnostics: () => Promise<void> | void
+}
+
+export default function DesktopSettingsPanel({
+  diagnostics,
+  diagnosticsRunning,
+  onRunDiagnostics
+}: DesktopSettingsPanelProps) {
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([])
   const [micStatus, setMicStatus] = useState<string>("")
   const [selectedMic, setSelectedMic] = useState<string | null>(null)
@@ -116,16 +129,33 @@ export default function DesktopSettingsPanel() {
   const [capturePrompt, setCapturePrompt] = useState<string | null>(null)
   const [hotkeyError, setHotkeyError] = useState<string | null>(null)
   const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
+  const [messageDuration, setMessageDuration] = useState<number>(6000)
   const [isCheckingPermission, setIsCheckingPermission] = useState(false)
 
   const preferredMicStorageKey = "coach_preferred_mic_id"
+  const messageDurationKey = "coach_message_duration"
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(preferredMicStorageKey)
-      if (stored) setSelectedMic(stored)
-    } catch {}
+      const storedMic = localStorage.getItem(preferredMicStorageKey)
+      if (storedMic) setSelectedMic(storedMic)
+
+      const storedDuration = localStorage.getItem(messageDurationKey)
+      if (storedDuration) {
+        const val = parseInt(storedDuration, 10)
+        if (!isNaN(val) && val >= 3000 && val <= 15000) {
+          setMessageDuration(val)
+        }
+      }
+    } catch { }
   }, [])
+
+  const handleDurationChange = (val: number) => {
+    setMessageDuration(val)
+    try {
+      localStorage.setItem(messageDurationKey, val.toString())
+    } catch { }
+  }
 
   const evaluatePermission = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.permissions?.query) {
@@ -166,7 +196,7 @@ export default function DesktopSettingsPanel() {
         setMicStatus(`Found ${inputs.length} microphone${inputs.length === 1 ? "" : "s"}.`)
         if (selectedMic && !inputs.find((mic) => mic.deviceId === selectedMic)) {
           setSelectedMic(null)
-          try { localStorage.removeItem(preferredMicStorageKey) } catch {}
+          try { localStorage.removeItem(preferredMicStorageKey) } catch { }
           setMicStatus("Saved microphone missing. Reverting to Windows default.")
         }
       }
@@ -212,7 +242,7 @@ export default function DesktopSettingsPanel() {
     try {
       localStorage.setItem(preferredMicStorageKey, id)
       setMicStatus("Saved preferred microphone for voice prompts.")
-    } catch {}
+    } catch { }
   }
 
   const loadHotkeys = () => {
@@ -225,9 +255,9 @@ export default function DesktopSettingsPanel() {
           const list: any[] = Array.isArray(res.hotkeys)
             ? res.hotkeys
             : [
-                ...(Array.isArray(res.globals) ? res.globals : []),
-                ...(Array.isArray(res.games?.[VALORANT_GAME_ID]) ? res.games[VALORANT_GAME_ID] : []),
-              ]
+              ...(Array.isArray(res.globals) ? res.globals : []),
+              ...(Array.isArray(res.games?.[VALORANT_GAME_ID]) ? res.games[VALORANT_GAME_ID] : []),
+            ]
           for (const hk of list) {
             const binding = hk?.binding || hk?.hotkey
             if (!binding) continue
@@ -235,9 +265,9 @@ export default function DesktopSettingsPanel() {
             if (hk?.name === "toggle_settings") map.toggle_settings = binding
           }
           setHotkeys(map)
-        } catch {}
+        } catch { }
       })
-    } catch {}
+    } catch { }
   }
 
   useEffect(() => {
@@ -319,81 +349,155 @@ export default function DesktopSettingsPanel() {
   }, [selectedMic, microphones])
 
   return (
-    <aside className="w-full max-w-sm border-l border-white/5 bg-black/40 text-white flex flex-col h-full">
-      <div className="px-5 py-4 border-b border-white/5">
-        <h2 className="text-lg font-semibold">Desktop Settings</h2>
-        <p className="text-xs text-white/70 mt-1">Manage microphones, hotkeys, and runtime preferences while you are out of game.</p>
+    <div className="w-[600px] max-h-[85vh] flex flex-col glass-card rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-[#0F1115]/95">
+      <div className="px-8 py-6 border-b border-white/10 flex items-center justify-between bg-white/5">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-3">
+            <Settings className="w-6 h-6 text-white/80" />
+            Settings
+          </h2>
+          <p className="text-xs text-white/50 mt-1 font-medium uppercase tracking-wider">Configuration & Diagnostics</p>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-auto space-y-6 px-5 py-4">
+      <div className="flex-1 overflow-y-auto p-8 space-y-8 no-scrollbar">
+
+
+        {/* Microphone Section */}
         <section>
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Microphone Source</h3>
-            <button className="text-xs text-white/70 hover:text-white" onClick={refreshMics}>Refresh</button>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+              <Mic className="w-4 h-4 text-white/60" />
+              Microphone Source
+            </h3>
+            <button
+              className="text-[10px] font-bold text-white/40 hover:text-white transition-colors uppercase tracking-wider"
+              onClick={refreshMics}
+            >
+              Refresh Devices
+            </button>
           </div>
-          <p className="text-xs text-white/60 mt-1">Pick which microphone feeds voice prompts. This selection is shared with the in-game overlay.</p>
-          <div className="mt-2 text-xs text-white/60">
-            Permission status: {isCheckingPermission ? 'Checking…' : micPermission === 'granted' ? 'Granted' : micPermission === 'denied' ? 'Denied via Windows/Overwolf' : 'Unknown'}
-          </div>
-          <select
-            className="w-full mt-3 bg-white/10 border border-white/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/40"
-            value={selectedMic || ""}
-            onChange={(e) => handleMicChange(e.target.value)}
-          >
-            <option value="">Use Windows default</option>
-            {microphones.map((mic) => (
-              <option key={mic.deviceId} value={mic.deviceId}>{mic.label || 'Microphone'}</option>
-            ))}
-          </select>
-          <div className="mt-2 text-xs text-white/70">Current: {activeMicLabel}</div>
-          <div className="mt-2 flex items-center gap-2 text-xs text-white/60">
-            <button className="px-3 py-1 rounded-full border border-white/20 hover:bg-white/10" onClick={requestMicPermission}>Grant Permission</button>
-            <span>{micStatus}</span>
+
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+            <div className="mb-4">
+              <label className="text-xs text-white/60 font-medium mb-2 block">Select Input Device</label>
+              <select
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-white/30 transition-colors"
+                value={selectedMic || ""}
+                onChange={(e) => handleMicChange(e.target.value)}
+              >
+                <option value="">Use Windows Default</option>
+                {microphones.map((mic) => (
+                  <option key={mic.deviceId} value={mic.deviceId}>{mic.label || 'Microphone'}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-white/40">Status:</span>
+                <span className={`font-bold ${micPermission === 'granted' ? 'text-white' : 'text-white/60'}`}>
+                  {isCheckingPermission ? 'Checking...' : micPermission === 'granted' ? 'Active' : 'Permission Needed'}
+                </span>
+              </div>
+              {micPermission !== 'granted' && (
+                <button
+                  className="px-3 py-1.5 rounded-lg bg-white text-black font-bold hover:bg-gray-200 transition-colors"
+                  onClick={requestMicPermission}
+                >
+                  Grant Permission
+                </button>
+              )}
+            </div>
+            {micStatus && <div className="mt-3 text-[10px] text-white/30 border-t border-white/5 pt-2">{micStatus}</div>}
           </div>
         </section>
 
+        {/* Hotkeys Section */}
         <section>
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Hotkeys</h3>
-            {capturePrompt && <span className="text-xs text-amber-300">{capturePrompt}</span>}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+              <Keyboard className="w-4 h-4 text-white/60" />
+              Hotkeys
+            </h3>
+            {capturePrompt && <span className="text-xs font-bold text-white animate-pulse">{capturePrompt}</span>}
           </div>
-          <div className="space-y-4 mt-3">
+
+          <div className="grid gap-3">
             {HOTKEY_TARGETS.map(({ name, label, description }) => (
-              <div key={name} className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                <div className="text-xs text-white/60">{label}</div>
-                <div className="mt-1 text-sm font-semibold">{formatHotkeyDisplay(hotkeys[name])}</div>
-                <p className="text-xs text-white/50 mt-1">{description}</p>
+              <div key={name} className="group flex items-center justify-between p-4 rounded-xl border border-white/10 bg-white/5 hover:border-white/20 transition-all">
+                <div>
+                  <div className="text-sm font-bold text-white">{label}</div>
+                  <div className="text-[10px] text-white/40 mt-0.5">{description}</div>
+                </div>
                 <button
-                  className="mt-3 px-3 py-1.5 rounded-full border border-white/30 text-xs hover:bg-white/10"
+                  className={`px-4 py-2 rounded-lg text-xs font-mono font-bold transition-all ${captureTarget === name
+                    ? "bg-white text-black scale-105"
+                    : "bg-black/40 text-white border border-white/10 hover:border-white/30"
+                    }`}
                   onClick={() => {
                     setHotkeyError(null)
                     setCaptureTarget(name)
                   }}
                 >
-                  {captureTarget === name ? 'Press combo…' : 'Change hotkey'}
+                  {captureTarget === name ? 'PRESS KEY...' : formatHotkeyDisplay(hotkeys[name])}
                 </button>
               </div>
             ))}
           </div>
-          {hotkeyError && <div className="mt-2 text-xs text-red-300">{hotkeyError}</div>}
+          {hotkeyError && <div className="mt-3 text-xs text-white/60 bg-white/5 p-2 rounded border border-white/10">{hotkeyError}</div>}
         </section>
 
+        {/* Preferences Section */}
         <section>
-          <h3 className="text-sm font-semibold">Need to adjust more?</h3>
-          <p className="text-xs text-white/60 mt-1">Use the Overwolf settings window if you want to tweak streaming, audio routing, or enable push-to-talk at the OS level.</p>
-          <button
-            className="mt-3 px-3 py-1.5 rounded-full border border-white/30 text-xs hover:bg-white/10"
-            onClick={() => {
-              try {
-                const ow: any = (window as any).overwolf
-                ow?.utils?.openUrl?.('overwolf://settings/audio')
-              } catch {}
-            }}
-          >
-            Open Overwolf Audio Settings
-          </button>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+              <Clock className="w-4 h-4 text-white/60" />
+              Preferences
+            </h3>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-white/60 font-medium">Message Display Time</label>
+              <span className="text-xs font-bold text-white">{messageDuration / 1000}s</span>
+            </div>
+            <input
+              type="range"
+              min="3000"
+              max="15000"
+              step="1000"
+              value={messageDuration}
+              onChange={(e) => handleDurationChange(parseInt(e.target.value))}
+              className="w-full h-1.5 bg-black/40 rounded-lg appearance-none cursor-pointer accent-white"
+            />
+            <p className="text-[10px] text-white/30 mt-2">
+              How long AI responses and errors stay on screen before fading out.
+            </p>
+          </div>
+        </section>
+
+        {/* Advanced Section */}
+        <section className="pt-4 border-t border-white/10">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-white">Advanced Audio</h3>
+              <p className="text-xs text-white/40 mt-1">Configure output devices and system-level settings.</p>
+            </div>
+            <button
+              className="px-4 py-2 rounded-lg border border-white/10 text-xs font-bold text-white hover:bg-white/5 transition-colors"
+              onClick={() => {
+                try {
+                  const ow: any = (window as any).overwolf
+                  ow?.utils?.openUrl?.('overwolf://settings/audio')
+                } catch { }
+              }}
+            >
+              Open Overwolf Settings
+            </button>
+          </div>
         </section>
       </div>
-    </aside>
+    </div>
   )
 }

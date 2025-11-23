@@ -28,6 +28,9 @@
       ],
       "@/components/*": [
         "./code/components/*"
+      ],
+      "@ui/*": [
+        "./code/components/ui/*"
       ]
     },
     "allowImportingTsExtensions": true,
