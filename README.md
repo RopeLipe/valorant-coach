@@ -38,11 +38,6 @@ Our mission is to democratize high-level coaching, giving every player the tools
 - **Platform**: Overwolf
 - **Data**: Riot API (Account-V1, Val-Match-V1, Val-Ranked-V1)    
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.         
-
----
 
 <div align="center">
   <sub>Built with ❤️ by the OWNED Team</sub>
