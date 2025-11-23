@@ -30,50 +30,17 @@ Our mission is to democratize high-level coaching, giving every player the tools
 - **🧠 Real-Time AI Coaching**: Get live tips on agent usage, economy management, and map positioning while you play.
 - **📊 Deep Post-Match Analysis**: Visualize your performance with detailed stats on K/D, ACS, Headshot %, and Win Rate.
 - **🔒 Secure & Safe**: Built with Riot Sign-On (RSO) to ensure your data is accessed securely and with your consent.
-- **🎨 Premium UI**: A sleek, "black and white" aesthetic designed to look great on your second monitor.
 
 ## 🛠️ Tech Stack
 
 - **Frontend**: React, Vite, Tailwind CSS
 - **Animations**: Framer Motion, GSAP, OGL (WebGL)
 - **Platform**: Overwolf
-- **Data**: Riot API (Account-V1, Val-Match-V1, Val-Ranked-V1)
-
-## 🏁 Getting Started
-
-### Prerequisites
-
-- **Node.js** (v18 or higher)
-- **Overwolf Client** (for testing the overlay)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Z1n3x/valorant-coach.git
-   cd valorant-coach
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Configure Environment**
-   Create a `.env.local` file in the root directory and add your Gemini API Key:
-   ```env
-   GEMINI_API_KEY=your_api_key_here
-   ```
-
-4. **Run Locally**
-   ```bash
-   npm run dev
-   ```
-   *Note: To test the overlay features, you must load the unpacked extension in the Overwolf Developer settings.*
+- **Data**: Riot API (Account-V1, Val-Match-V1, Val-Ranked-V1)    
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please feel free to submit a Pull Request.         
 
 ---
 
