@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Owned - AI Valorant Coach by 23 Creative</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Vercel Geist Fonts -->
+    <link href="https://assets.vercel.com/font/geist/sans/style.css" rel="stylesheet">
+    <link href="https://assets.vercel.com/font/geist/mono/style.css" rel="stylesheet">
+
+    <style>
+        /* Base styles - Set body to a very deep, consistent near-black */
+        body {
+            font-family: var(--font-geist-sans), sans-serif;
+            background-color: #030303;
+            /* Consistent Dark Background */
+            color: #FFFFFF;
+            overflow-x: hidden;
+        }
+
+        /* --- Custom Animated Gradient for Hero (Subtle, deeper shift) --- */
+        .hero-background {
+            background: linear-gradient(-45deg, #030303, #080808, #030303, #080808);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease-in-out infinite;
+            /* Slower and smoother */
+            position: relative;
+            overflow: hidden;
+        }
+
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+
+        /* --- Scroll Animation Classes (Smoother and more deliberate) --- */
+        .animate-on-scroll {
+            opacity: 0;
+            transform: translateY(40px);
+            /* Increased travel distance */
+            transition: opacity 1.0s ease-out, transform 1.0s ease-out;
+            /* Slower and more prominent transition */
+        }
+
+        .animate-on-scroll.is-visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Staggered delay for child elements */
+        .animate-on-scroll.is-visible .animate-child-1 {
+            transition-delay: 0.1s;
+        }
+
+        .animate-on-scroll.is-visible .animate-child-2 {
+            transition-delay: 0.2s;
+        }
+
+        .animate-on-scroll.is-visible .animate-child-3 {
+            transition-delay: 0.3s;
+        }
+
+        /* --- Pulsing Glow for CTA Button --- */
+        .cta-glow {
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+            animation: pulse-glow 2.5s infinite ease-in-out;
+        }
+
+        @keyframes pulse-glow {
+            0% {
+                box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+            }
+
+            50% {
+                box-shadow: 0 0 25px rgba(255, 255, 255, 0.7);
+            }
+
+            100% {
+                box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+            }
+        }
+
+        /* Simple hero text animation */
+        .hero-text-animate {
+            animation: fadeIn 1s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        /* --- Animated Gapped Box (Using SVG trick on border) --- */
+        .your-box {
+            position: relative;
+            display: inline-block;
+            /* Adjusted line-height for a tighter box around the text */
+            line-height: 1.1;
+        }
+
+        /* Define the border as the animated element */
+        .your-box::after {
+            content: '';
+            position: absolute;
+            /* Increased padding to 8px for more space */
+            top: -8px;
+            left: -8px;
+            /* Updated width/height calculation: 8px top + 8px bottom = 16px total */
+            width: calc(100% + 16px);
+            height: calc(100% + 16px);
+
+            border: 4px solid #fff;
+            border-radius: 4px;
+            transform: rotate(-1deg);
+            pointer-events: none;
+            z-index: 10;
+
+            /* Key properties for dash effect */
+            --total-length: 400;
+            /* Arbitrary large number for dash trick */
+
+            border: 4px solid white;
+            border-style: solid;
+
+            /* Initial state: fully hidden */
+            animation: drawLineAround 1.5s ease-out forwards;
+
+            /* Set the properties to allow the dash trick on the border */
+            border-image: linear-gradient(to right, white, white) 1;
+            border-image-slice: 1;
+
+            /* Start fully hidden */
+            stroke-dasharray: var(--total-length);
+            stroke-dashoffset: var(--total-length);
+        }
+
+        @keyframes drawLineAround {
+            0% {
+                stroke-dashoffset: var(--total-length);
+                opacity: 0;
+            }
+
+            10% {
+                opacity: 1;
+            }
+
+            100% {
+                /* Draw 90% of the box, leaving 10% gap */
+                stroke-dashoffset: calc(var(--total-length) * 0.1);
+            }
+        }
+    </style>
+</head>
+
+<body class="antialiased">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 w-full bg-black bg-opacity-80 backdrop-blur-md border-b border-gray-800">
+        <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <!-- Logo -->
+            <a href="#" class="text-2xl font-black tracking-tighter text-white">
+                OWNED
+            </a>
+
+            <!-- CTA Button -->
+            <a href="#"
+                class="bg-white text-black font-semibold px-5 py-2 rounded-lg text-sm transition-transform hover:scale-105 hover:bg-gray-200">
+                Download on Overwolf
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main>
+
+        <!-- Hero Section -->
+        <section class="hero-background min-h-screen flex items-center justify-center text-center px-6 py-24 -mt-20">
+            <div class="max-w-4xl hero-text-animate">
+                <h1 class="text-5xl md:text-8xl font-black tracking-tighter text-white mb-6">
+                    <!-- Animated Gapped Box around 'YOUR' -->
+                    <span class="relative inline-block your-box">YOUR</span> PERSONAL<br>AI VALORANT COACH
+                </h1>
+                <p class="text-lg md:text-xl text-gray-300 max-w-2xl mx-auto mb-10">
+                    Stop guessing. Start improving. Owned analyzes your gameplay in real-time to give you the
+                    personalized feedback you need to climb the ranks. Powered by 23 Creative.
+                </p>
+                <a href="#"
+                    class="cta-glow inline-block bg-white text-black text-lg font-bold px-10 py-4 rounded-lg transition-transform hover:scale-105">
+                    Get Owned on Overwolf Now
+                </a>
+            </div>
+        </section>
+
+        <!-- Features Section (White Panels on Dark Background) -->
+        <section class="text-white py-20 md:py-32 border-t border-gray-900">
+            <div class="container mx-auto px-6">
+
+                <!-- Section Header -->
+                <div class="max-w-3xl mx-auto text-center mb-16 animate-on-scroll">
+                    <h2 class="text-4xl md:text-5xl font-black tracking-tighter mb-4">
+                        Outsmart the Competition
+                    </h2>
+                    <p class="text-lg text-gray-400">
+                        Owned is more than a stat tracker. It's an active coach that identifies your habits, pinpoints
+                        your mistakes, and guides you to victory.
+                    </p>
+                </div>
+
+                <!-- Features Grid -->
+                <div class="grid md:grid-cols-3 gap-8 animate-on-scroll">
+
+                    <!-- Feature Card 1 (White Card) -->
+                    <div class="bg-white text-black shadow-2xl p-8 rounded-xl border border-gray-100 animate-child-1">
+                        <svg class="w-12 h-12 text-black mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9.75 17.25v-10.5a.75.75 0 0 0-1.5 0v10.5a.75.75 0 0 0 1.5 0Zm-3.75 0v-10.5a.75.75 0 0 0-1.5 0v10.5a.75.75 0 0 0 1.5 0Zm7.5 0v-10.5a.75.75 0 0 0-1.5 0v10.5a.75.75 0 0 0 1.5 0Zm3.75 0v-10.5a.75.75 0 0 0-1.5 0v10.5a.75.75 0 0 0 1.5 0Zm-11.25 1.5a.75.75 0 0 1 .75-.75h13.5a.75.75 0 0 1 0 1.5h-13.5a.75.75 0 0 1-.75-.75Z">
+                            </path>
+                        </svg>
+                        <h3 class="text-2xl font-bold mb-2">Real-Time Analysis</h3>
+                        <p class="text-gray-600">
+                            Get instant, in-game feedback on crosshair placement, utility usage, and economic decisions.
+                            No more waiting for the match to end.
+                        </p>
+                    </div>
+
+                    <!-- Feature Card 2 (White Card) -->
+                    <div class="bg-white text-black shadow-2xl p-8 rounded-xl border border-gray-100 animate-child-2">
+                        <svg class="w-12 h-12 text-black mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75">
+                            </path>
+                        </svg>
+                        <h3 class="text-2xl font-bold mb-2">Personalized Drills</h3>
+                        <p class="text-gray-600">
+                            Our AI analyzes your weaknesses and creates custom training routines and scenarios to help
+                            you sharpen your specific skills.
+                        </p>
+                    </div>
+
+                    <!-- Feature Card 3 (White Card) -->
+                    <div class="bg-white text-black shadow-2xl p-8 rounded-xl border border-gray-100 animate-child-3">
+                        <svg class="w-12 h-12 text-black mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 13.125C3 12.504 3.504 12 4.125 12h15.75c.621 0 1.125.504 1.125 1.125v6.75c0 .621-.504 1.125-1.125 1.125H4.125A1.125 1.125 0 0 1 3 19.875v-6.75ZM12 12.375V15M12 18.375v.008">
+                            </path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7.5 12.375V15M16.5 12.375V15M12 6.375V9.75M16.5 6.375V9.75M7.5 6.375V9.75M12 3.75v.008">
+                            </path>
+                        </svg>
+                        <h3 class="text-2xl font-bold mb-2">Deep-Dive Breakdowns</h3>
+                        <p class="text-gray-600">
+                            Review every round with AI-driven insights. Understand *why* you won or lost an engagement,
+                            not just *that* you did.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- "How It Works" Section (White Steps on Dark Background) -->
+        <section class="text-white py-20 md:py-32 border-t border-gray-900">
+            <div class="container mx-auto px-6">
+                <!-- Section Header -->
+                <div class="max-w-3xl mx-auto text-center mb-16 animate-on-scroll">
+                    <h2 class="text-4xl md:text-5xl font-black tracking-tighter mb-4">
+                        Get Started in Minutes
+                    </h2>
+                    <p class="text-lg text-gray-400">
+                        Improving your game has never been this easy.
+                    </p>
+                </div>
+
+                <!-- Steps -->
+                <div class="max-w-4xl mx-auto grid md:grid-cols-3 gap-10 text-center animate-on-scroll">
+
+                    <!-- Step 1 (Updated to White) -->
+                    <div class="animate-child-1">
+                        <div
+                            class="w-16 h-16 bg-white text-black shadow-xl border border-gray-300 rounded-full flex items-center justify-center text-2xl font-bold mx-auto mb-4">
+                            1
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">Install on Overwolf</h3>
+                        <p class="text-gray-400">
+                            Download Owned from the Overwolf app store. It's safe, secure, and easy to set up.
+                        </p>
+                    </div>
+
+                    <!-- Step 2 (Updated to White) -->
+                    <div class="animate-child-2">
+                        <div
+                            class="w-16 h-16 bg-white text-black shadow-xl border border-gray-300 rounded-full flex items-center justify-center text-2xl font-bold mx-auto mb-4">
+                            2
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">Play VALORANT</h3>
+                        <p class="text-gray-400">
+                            Launch your game. Owned runs securely in the background, analyzing your gameplay without
+                            affecting performance.
+                        </p>
+                    </div>
+
+                    <!-- Step 3 (Updated to White) -->
+                    <div class="animate-child-3">
+                        <div
+                            class="w-16 h-16 bg-white text-black shadow-xl border border-gray-300 rounded-full flex items-center justify-center text-2xl font-bold mx-auto mb-4">
+                            3
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">Review & Improve</h3>
+                        <p class="text-gray-400">
+                            Check your post-match analysis and get real-time tips during your next game. Watch your rank
+                            climb.
+                        </p>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- Final CTA Section (Dark Background) -->
+        <section class="text-white py-20 md:py-32 border-t border-gray-900">
+            <div class="container mx-auto px-6 text-center animate-on-scroll">
+                <h2 class="text-4xl md:text-6xl font-black tracking-tighter max-w-3xl mx-auto mb-6">
+                    Ready to See Your True Potential?
+                </h2>
+                <p class="text-lg text-gray-400 max-w-xl mx-auto mb-10">
+                    Join thousands of players who are ranking up with their personal AI coach.
+                    Download Owned today.
+                </p>
+                <a href="#"
+                    class="cta-glow inline-block bg-white text-black text-lg font-bold px-10 py-4 rounded-lg transition-transform hover:scale-105">
+                    Download on Overwolf for Free
+                </a>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-gray-800 py-12">
+        <div class="container mx-auto px-6 text-center">
+            <p class="text-sm text-gray-500">
+                &copy; 2025 23 Creative. All rights reserved.
+            </p>
+            <p class="text-sm text-gray-600 mt-1">
+                Owned is a third-party application. VALORANT is a registered trademark of Riot Games, Inc.
+            </p>
+        </div>
+    </footer>
+
+    <!-- JavaScript for Animations -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- Intersection Observer for Scroll Animations ---
+            const animatedElements = document.querySelectorAll('.animate-on-scroll');
+
+            if ("IntersectionObserver" in window) {
+                const observer = new IntersectionObserver((entries, observer) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('is-visible');
+                            observer.unobserve(entry.target); // Animate only once
+                        }
+                    });
+                }, {
+                    threshold: 0.1 // Trigger when 10% of the element is visible
+                });
+
+                animatedElements.forEach(el => {
+                    observer.observe(el);
+                });
+            } else {
+                // Fallback for browsers that don't support IntersectionObserver
+                animatedElements.forEach(el => {
+                    el.classList.add('is-visible');
+                });
+            }
+        });
+    </script>
+
+</body>
+
+</html>

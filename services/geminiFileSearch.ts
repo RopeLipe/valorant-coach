@@ -146,7 +146,8 @@ export async function listDocuments(ragStoreName: string): Promise<Document[]> {
 
     try {
         const response = await ai.fileSearchStores.documents.list({
-            parent: ragStoreName
+            parent: ragStoreName,
+            pageSize: 100
         });
 
         const files: Document[] = [];
@@ -224,6 +225,9 @@ export interface UploadOptions {
 /**
  * Upload a file to RAG store with advanced options
  * Supports chunking configuration and custom metadata
+ * 
+ * Best Practice: Use chunkingConfig to optimize retrieval.
+ * Recommended: maxTokensPerChunk: 400, maxOverlapTokens: 40 for tactical guides.
  */
 export async function uploadToRagStore(
     ragStoreName: string,
@@ -372,11 +376,11 @@ export async function fileSearch(
         }
 
         const response: GenerateContentResponse = await ai.models.generateContent({
-            model: options?.model || 'gemini-2.5-flash',
+            model: options?.model || 'gemini-flash-latest',
             contents: query,
             config: {
                 systemInstruction: options?.systemInstruction ||
-                    "You are a professional Valorant coach. Your answers must be extremely brief, concise, and actionable. Limit your response to a maximum of 2 short sentences. Focus on immediate tactical advice. Be encouraging but direct.",
+                    "You are a professional Valorant coach. You have access to a knowledge base that contains information about NEW and CUSTOM agents (specifically Veto, Tejo, Waylay, Clove, Vyse) that are NOT in your general training data. CRITICAL: If the user asks about 'Veto' or any other custom agent, you MUST use the provided context. Do NOT say the agent does not exist. ALWAYS prioritize the information found in the provided context over your internal knowledge. If the context describes an agent, assume they exist and give advice based on that context. \n\nCONTEXT AWARENESS: You will be provided with lists of 'Allies' and 'Enemies'. Use this information to provide smarter, context-aware advice. For example, if the enemy has a Cypher, warn about trips. If the player's team lacks smokes, suggest cautious pathing. Analyze the team compositions for tactical advantages and disadvantages.\n\nYour answers must be extremely brief, concise, and actionable. Limit your response to a maximum of 2 short sentences. Focus on immediate tactical advice.",
                 tools: [
                     {
                         fileSearch: fileSearchConfig
@@ -386,7 +390,7 @@ export async function fileSearch(
         });
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-        const groundingSupport = response.candidates?.[0]?.groundingMetadata?.groundingSupport || [];
+        const groundingSupport = (response.candidates?.[0]?.groundingMetadata as any)?.groundingSupports || [];
 
         return {
             text: response.text,
@@ -427,7 +431,7 @@ export async function generateExampleQuestions(ragStoreName: string): Promise<st
             : `fileSearchStores/${ragStoreName}`;
 
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-flash-latest',
             contents: "You are a professional Valorant coach. Based on the provided gameplay data (VOD reviews, match history, guides, etc.), generate 4 short and practical example questions a player might ask to improve. Return the questions as a JSON array of strings.",
             config: {
                 tools: [
@@ -518,7 +522,7 @@ export function extractMetadataFromFilename(filename: string): CustomMetadata[] 
     const lower = filename.toLowerCase();
 
     // Extract map name
-    const maps = ['haven', 'bind', 'split', 'ascent', 'icebox', 'breeze', 'fracture', 'pearl', 'lotus', 'sunset', 'abyss'];
+    const maps = ['abyss', 'ascent', 'bind', 'breeze', 'corrode', 'fracture', 'haven', 'icebox', 'lotus', 'pearl', 'split', 'sunset'];
     for (const map of maps) {
         if (lower.includes(map)) {
             metadata.push({ key: 'map', stringValue: map.charAt(0).toUpperCase() + map.slice(1) });
@@ -538,10 +542,17 @@ export function extractMetadataFromFilename(filename: string): CustomMetadata[] 
     }
 
     // Extract agent name if present
-    const agents = ['jett', 'phoenix', 'sage', 'sova', 'viper', 'cypher', 'reyna', 'killjoy', 'breach', 'omen', 'raze', 'skye', 'yoru', 'astra', 'kay/o', 'chamber', 'neon', 'fade', 'harbor', 'gekko', 'deadlock', 'iso'];
+    const agents = [
+        'astra', 'breach', 'brimstone', 'chamber', 'clove', 'cypher', 'deadlock', 'fade', 
+        'gekko', 'harbor', 'iso', 'jett', 'kay/o', 'kayo', 'killjoy', 'neon', 'omen', 
+        'phoenix', 'raze', 'reyna', 'sage', 'skye', 'sova', 'tejo', 'veto', 'viper', 
+        'vyse', 'waylay', 'yoru'
+    ];
     for (const agent of agents) {
         if (lower.includes(agent)) {
-            metadata.push({ key: 'agent', stringValue: agent.charAt(0).toUpperCase() + agent.slice(1) });
+            // Handle special case for KAY/O to ensure consistent capitalization
+            const agentName = agent === 'kayo' ? 'KAY/O' : agent.charAt(0).toUpperCase() + agent.slice(1);
+            metadata.push({ key: 'agent', stringValue: agentName });
             break;
         }
     }

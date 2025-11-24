@@ -1,4 +1,5 @@
 import { voiceLog } from './voice'
+import { correctTranscript } from './speechToText'
 
 type SpeechRecognitionEvent = any
 type SpeechRecognitionErrorEvent = any
@@ -87,8 +88,9 @@ export class ContinuousVoiceService {
                     }
                 }
 
-                const text = (finalTranscript || interimTranscript).trim()
-                if (text) {
+                const rawText = (finalTranscript || interimTranscript).trim()
+                if (rawText) {
+                    const text = correctTranscript(rawText)
                     this.currentTranscript = text // Update currentTranscript here
                     this.options.onResult(text, !!finalTranscript)
                     // Also trigger session callback if active

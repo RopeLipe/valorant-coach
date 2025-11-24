@@ -55,9 +55,9 @@ export default function OverlayApp() {
 
   // initialize gemini lazily
   useEffect(() => {
-    try { storeIdRef.current = RAG_CONFIG.defaultStoreId } catch {}
-    try { geminiService.initialize() } catch {}
-    
+    try { storeIdRef.current = RAG_CONFIG.defaultStoreId } catch { }
+    try { geminiService.initialize() } catch { }
+
     // Warm up microphone permission
     if (navigator.mediaDevices?.getUserMedia) {
       navigator.mediaDevices.getUserMedia({ audio: true })
@@ -90,7 +90,7 @@ export default function OverlayApp() {
   const queuePrompt = useCallback(async (hint: string) => {
     try {
       const prompt = buildCompositePrompt(hint)
-      
+
       // Construct metadata filters based on game context
       const info = overlayInfo || {}
       const mi = info.match_info || {}
@@ -98,21 +98,38 @@ export default function OverlayApp() {
       const rawAgent = (info.me || {}).agent || ''
       const agentName = getAgentName(rawAgent)
       const mapName = getMapName(rawMap)
-      
+
       const filters: string[] = []
-      
+
       // Normalize map
-      const maps = ['Haven', 'Bind', 'Split', 'Ascent', 'Icebox', 'Breeze', 'Fracture', 'Pearl', 'Lotus', 'Sunset', 'Abyss']
-      const foundMap = maps.find(m => mapName.toLowerCase().includes(m.toLowerCase()))
-      if (foundMap) {
-        filters.push(`map = '${foundMap}'`)
-      }
-      
+      const maps = ['Abyss', 'Ascent', 'Bind', 'Breeze', 'Corrode', 'Fracture', 'Haven', 'Icebox', 'Lotus', 'Pearl', 'Split', 'Sunset']
+      const queryMap = maps.find(m => hint.toLowerCase().includes(m.toLowerCase()))
+      const currentMap = maps.find(m => mapName.toLowerCase().includes(m.toLowerCase()))
+      const targetMap = queryMap || currentMap
+
       // Normalize agent
-      const agents = ['Jett', 'Phoenix', 'Sage', 'Sova', 'Viper', 'Cypher', 'Reyna', 'Killjoy', 'Breach', 'Omen', 'Raze', 'Skye', 'Yoru', 'Astra', 'KAY/O', 'Chamber', 'Neon', 'Fade', 'Harbor', 'Gekko', 'Deadlock', 'Iso', 'Clove', 'Vyse', 'Tejo', 'Waylay']
-      const foundAgent = agents.find(a => agentName.toLowerCase().includes(a.toLowerCase()))
-      if (foundAgent) {
-        filters.push(`agent = '${foundAgent}'`)
+      const agents = [
+        'Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 
+        'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon', 'Omen', 
+        'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Veto', 'Viper', 
+        'Vyse', 'Waylay', 'Yoru'
+      ]
+      const queryAgent = agents.find(a => hint.toLowerCase().includes(a.toLowerCase()))
+      const currentAgent = agents.find(a => agentName.toLowerCase().includes(a.toLowerCase()))
+      const targetAgent = queryAgent || currentAgent
+
+      // 1. Agent Filter (High Priority)
+      if (targetAgent) {
+        filters.push(`agent = '${targetAgent}'`)
+      }
+
+      // 2. Map Filter (Conditional)
+      // Only include map filter if:
+      // - The user explicitly asked about a map (queryMap exists)
+      // - OR there is NO agent target (general map question)
+      // We avoid adding currentMap filter if the user is asking about an Agent, to prevent noise.
+      if (queryMap || (!targetAgent && currentMap)) {
+         if (targetMap) filters.push(`map = '${targetMap}'`)
       }
 
       // Always include general guides
@@ -132,26 +149,29 @@ export default function OverlayApp() {
         setOverlayAiQueue([])
       }
       if (responseMode !== 'text' && text) {
-        try { voice.speak(text, { rate: voiceRate, volume: voiceVolume }) } catch {}
+        try { voice.speak(text, { rate: voiceRate, volume: voiceVolume }) } catch { }
       }
-    } catch {}
+    } catch { }
   }, [responseMode, voiceRate, voiceVolume, overlayInfo])
 
   const handleVoiceCommand = useCallback(async () => {
     if (listeningRef.current) return
     listeningRef.current = true
     setListening(true)
+    setDebugLog(prev => [`Voice command started`, ...prev])
     try {
       const result = await voice.startListening({
         maxDurationMs: 8000
       })
       const question = result.text.trim()
+      setDebugLog(prev => [`Voice result: "${question}"`, ...prev])
       if (!question) {
         return
       }
       await queuePrompt(question)
     } catch (err: any) {
       const code = err?.code
+      setDebugLog(prev => [`Voice error (${code}): ${err?.message}`, ...prev])
       if (code === 'cancelled' || code === 'already_listening') {
         return
       }
@@ -162,13 +182,14 @@ export default function OverlayApp() {
           setSettingsTrigger((n) => n + 1)
           const ow: any = (window as any).overwolf
           ow?.utils?.openUrl?.('overwolf://settings/games-overlay?hotkey=voice_command&gameId=21640')
-        } catch {}
+        } catch { }
         return
       }
       setOverlayAiQueue([`Voice error: ${err?.message || 'Unknown'}`])
     } finally {
       listeningRef.current = false
       setListening(false)
+      setDebugLog(prev => [`Voice command finished`, ...prev])
     }
   }, [queuePrompt])
 
@@ -179,7 +200,7 @@ export default function OverlayApp() {
         `${new Date().toLocaleTimeString()} ${payload?.type || 'unknown'}`,
         ...arr
       ].slice(0, 50))
-    } catch {}
+    } catch { }
     if (payload?.type === 'info_update') {
       const info = payload.data?.info
       if (info) {
@@ -221,14 +242,14 @@ export default function OverlayApp() {
       if (state === 'down') {
         handleVoiceCommand()
       } else if (state === 'up') {
-        try { voice.endListening() } catch {}
+        try { voice.endListening() } catch { }
       }
     }
     if (payload?.type === 'toggle_settings') {
-      try { setSettingsTrigger((n) => n + 1) } catch {}
+      try { setSettingsTrigger((n) => n + 1) } catch { }
     }
     if (payload?.type === 'hotkey_unassigned') {
-      try { setSettingsTrigger((n) => n + 1) } catch {}
+      try { setSettingsTrigger((n) => n + 1) } catch { }
     }
     if (payload?.type === 'hotkey_changed') {
       const name = payload?.data?.name
@@ -237,7 +258,7 @@ export default function OverlayApp() {
       if (name === 'toggle_settings' && binding) setSettingsHotkey(binding)
     }
     if (payload?.type === 'game_detected') {
-      try { setScale(1); setTheme('dark') } catch {}
+      try { setScale(1); setTheme('dark') } catch { }
     }
   }, [autoSpeakOnKill, handleVoiceCommand, queuePrompt])
 
@@ -247,19 +268,19 @@ export default function OverlayApp() {
       try {
         const payload = parseValorantPayload(event)
         if (payload) handleValorantPayload(payload)
-      } catch {}
+      } catch { }
     }
     const onWindowMessage = (event: MessageEvent) => {
       try {
         const payload = parseValorantPayload(event.data)
         if (payload) handleValorantPayload(payload)
-      } catch {}
+      } catch { }
     }
-    try { ow?.windows?.onMessageReceived?.addListener(onOwMessage) } catch {}
-    try { window.addEventListener('message', onWindowMessage) } catch {}
+    try { ow?.windows?.onMessageReceived?.addListener(onOwMessage) } catch { }
+    try { window.addEventListener('message', onWindowMessage) } catch { }
     return () => {
-      try { ow?.windows?.onMessageReceived?.removeListener(onOwMessage) } catch {}
-      try { window.removeEventListener('message', onWindowMessage) } catch {}
+      try { ow?.windows?.onMessageReceived?.removeListener(onOwMessage) } catch { }
+      try { window.removeEventListener('message', onWindowMessage) } catch { }
     }
   }, [handleValorantPayload, parseValorantPayload])
 
@@ -270,13 +291,13 @@ export default function OverlayApp() {
         try {
           const list: any[] = res?.success
             ? (
-                Array.isArray(res?.hotkeys)
-                  ? res.hotkeys
-                  : [
-                      ...(Array.isArray(res?.globals) ? res.globals : []),
-                      ...(Array.isArray(res?.games?.[21640]) ? res.games[21640] : []),
-                    ]
-              )
+              Array.isArray(res?.hotkeys)
+                ? res.hotkeys
+                : [
+                  ...(Array.isArray(res?.globals) ? res.globals : []),
+                  ...(Array.isArray(res?.games?.[21640]) ? res.games[21640] : []),
+                ]
+            )
             : []
           const hk = list.find((h: any) => h?.name === 'voice_command')
           const val = hk?.binding || hk?.hotkey
@@ -284,9 +305,9 @@ export default function OverlayApp() {
           const sh = list.find((h: any) => h?.name === 'toggle_settings')
           const sval = sh?.binding || sh?.hotkey
           if (sval) setSettingsHotkey(sval)
-        } catch {}
+        } catch { }
       })
-    } catch {}
+    } catch { }
   }, [])
 
   useEffect(() => {
@@ -311,12 +332,17 @@ export default function OverlayApp() {
     const enemies = roster.filter(r => !r.teammate).map(r => getAgentName(r.character)).join(', ')
     const agent = getAgentName((info.me || {}).agent || 'unknown')
     const map = getMapName(mi.map || 'unknown')
-    return `${userText}\nAgent: ${agent}\nAllies: ${allies || 'unknown'}\nEnemies: ${enemies || 'unknown'}\nMap: ${map}`
+    
+    // Add specific context about team composition balance
+    const allyRoles = allies.length ? `(Team: ${allies})` : ''
+    const enemyRoles = enemies.length ? `(Opponents: ${enemies})` : ''
+    
+    return `Context:\n- My Agent: ${agent}\n- Map: ${map}\n- My Team: ${allies || 'unknown'}\n- Enemy Team: ${enemies || 'unknown'}\n\nUser Question: "${userText}"\n\nTask: Provide tactical advice considering the specific matchups. If enemies have specific utility (like Cypher trips or Breach stuns), warn me. If my team lacks specific roles (like Smokes), suggest how to adapt.`
   }
 
   const debugEntries = debugLog.length ? debugLog : ['No overlay events yet.']
 
-  
+
 
   return (
     <>
@@ -330,7 +356,7 @@ export default function OverlayApp() {
         settingsHotkey={settingsHotkey}
         onToggle={(next) => {
           if (!next) {
-            try { voice.cancelListening() } catch {}
+            try { voice.cancelListening() } catch { }
           }
         }}
       />

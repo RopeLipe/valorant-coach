@@ -1,4 +1,4 @@
-import { transcribeAudio } from './speechToText'
+import { transcribeAudio, correctTranscript } from './speechToText'
 
 export type STTResult = { text: string }
 
@@ -368,8 +368,9 @@ function startWithWebSpeech(
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
         const transcript = event.results?.[0]?.[0]?.transcript?.trim() || ''
-        voiceLog('recognition_result', { transcript })
-        settle(() => resolve({ text: transcript }))
+        const corrected = correctTranscript(transcript)
+        voiceLog('recognition_result', { transcript, corrected })
+        settle(() => resolve({ text: corrected }))
       }
 
       recognition.onerror = (event: SpeechRecognitionErrorEvent) => {

@@ -31,9 +31,28 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
     }
 
     const data = await response.json();
-    return data.text.trim();
+    return correctTranscript(data.text.trim());
   } catch (err) {
     console.error("Transcription failed", err);
     throw err;
   }
+}
+
+export function correctTranscript(text: string): string {
+  // Common mishearings for Valorant terms
+  const corrections: Record<string, string> = {
+    "vito": "Veto",
+    "Vito": "Veto",
+    "kayo": "KAY/O",
+    "kay o": "KAY/O",
+    "k o": "KAY/O",
+  };
+
+  let corrected = text;
+  for (const [wrong, right] of Object.entries(corrections)) {
+    // Use word boundary to avoid replacing parts of other words
+    const regex = new RegExp(`\\b${wrong}\\b`, 'gi');
+    corrected = corrected.replace(regex, right);
+  }
+  return corrected;
 }
