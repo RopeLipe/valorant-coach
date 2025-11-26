@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { Mic, Sparkles, Bot } from "lucide-react"
+import { Mic, Sparkles, Bot, Brain } from "lucide-react"
 import { ScrollArea } from "@ui/scroll-area"
 import { motion, AnimatePresence } from "framer-motion"
 import { AGENT_LIST, AgentAsset } from "../../src/utils/agentAssets"
@@ -82,8 +82,8 @@ function parseRichText(text: string) {
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]
       if (typeof part === 'string') {
-        // Split by the term (case insensitive)
-        const regex = new RegExp(`(${token.term})`, 'gi')
+        // Split by the term (case insensitive) with word boundaries
+        const regex = new RegExp(`\\b(${token.term})\\b`, 'gi')
         const split = part.split(regex)
 
         if (split.length > 1) {
@@ -167,7 +167,7 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
     }
     if (thinking) {
       return {
-        title: 'Owny is thinking...',
+        title: 'Owned is thinking...',
         subtitle: 'Analyzing match context...'
       }
     }
@@ -194,9 +194,9 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
           className="space-y-3"
         >
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-3 max-h-40">
-            <ScrollArea className="max-h-32">
-              <div className="text-sm text-white/90 whitespace-pre-wrap leading-snug">
+          <div className="bg-black/60 border border-white/10 rounded-2xl p-4 max-h-60 shadow-lg backdrop-blur-md">
+            <ScrollArea className="max-h-48 pr-2">
+              <div className="text-base text-white font-medium whitespace-pre-wrap leading-relaxed tracking-wide drop-shadow-sm">
                 {parseRichText(aiText)}
               </div>
             </ScrollArea>
@@ -240,23 +240,27 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex justify-center py-4"
+          className="flex flex-col items-center justify-center py-4 space-y-3"
         >
+          <div className="relative">
+            <Brain className="w-8 h-8 text-white/90 animate-pulse" />
+            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-ping" />
+          </div>
           <div className="flex gap-2">
             <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+              animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
               transition={{ repeat: Infinity, duration: 1, delay: 0 }}
-              className="w-2 h-2 bg-white rounded-full"
+              className="w-1.5 h-1.5 bg-white rounded-full"
             />
             <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+              animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
               transition={{ repeat: Infinity, duration: 1, delay: 0.2 }}
-              className="w-2 h-2 bg-white rounded-full"
+              className="w-1.5 h-1.5 bg-white rounded-full"
             />
             <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+              animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
               transition={{ repeat: Infinity, duration: 1, delay: 0.4 }}
-              className="w-2 h-2 bg-white rounded-full"
+              className="w-1.5 h-1.5 bg-white rounded-full"
             />
           </div>
         </motion.div>
@@ -282,7 +286,7 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
             layout
             initial={false}
             animate={{
-              width: showCard ? 360 : 'auto',
+              width: showCard ? 420 : 'auto',
               borderRadius: showCard ? 24 : 9999,
               height: 'auto'
             }}

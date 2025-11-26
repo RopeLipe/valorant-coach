@@ -493,13 +493,75 @@ export function endListening() {
   try { recognition.stop() } catch { }
 }
 
-export function speak(text: string, opts?: { rate?: number; pitch?: number; volume?: number }) {
+export async function speak(text: string, opts?: { rate?: number; pitch?: number; volume?: number; targetDurationMs?: number }) {
   try {
-    const u = new SpeechSynthesisUtterance(text)
-    u.rate = typeof opts?.rate === 'number' ? opts.rate : 1
-    u.pitch = typeof opts?.pitch === 'number' ? opts.pitch : 1
-    u.volume = typeof opts?.volume === 'number' ? opts.volume : 1
-    window.speechSynthesis.cancel()
-    window.speechSynthesis.speak(u)
-  } catch { }
+    const response = await fetch('https://api.elevenlabs.io/v1/text-to-speech/G2W7Zottxtm1v2gn40VN', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': import.meta.env.VITE_ELEVENLABS_API_KEY
+      },
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_flash_v2_5',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.5
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('ElevenLabs API error:', response.status, errorText);
+      return;
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+
+    if (opts?.volume) {
+      audio.volume = Math.min(Math.max(opts.volume, 0), 1);
+    }
+
+    // Wait for metadata to know duration
+    await new Promise<void>((resolve) => {
+      audio.onloadedmetadata = () => {
+        if (opts?.targetDurationMs && audio.duration && audio.duration > 0) {
+          // Calculate required rate to fit in target duration
+          // duration (s) / rate = target (s)
+          // rate = duration (s) / target (s)
+          const targetSeconds = opts.targetDurationMs / 1000;
+          let rate = audio.duration / targetSeconds;
+
+          // Clamp rate to keep it intelligible (0.75x to 2.0x)
+          // If it's too long, we speed up max 2x. If it's too short, we slow down max 0.75x.
+          rate = Math.min(Math.max(rate, 0.75), 2.0);
+
+          audio.playbackRate = rate;
+          voiceLog('playback_rate_adjusted', {
+            originalDuration: audio.duration,
+            targetDuration: targetSeconds,
+            rate
+          });
+        } else if (opts?.rate) {
+          audio.playbackRate = opts.rate;
+        }
+        resolve();
+      };
+      // Fallback if metadata fails
+      audio.onerror = () => resolve();
+      // Safety timeout
+      setTimeout(resolve, 1000);
+    });
+
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+    };
+
+    await audio.play();
+  } catch (err) {
+    console.error('Failed to play TTS:', err);
+  }
 }

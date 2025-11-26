@@ -17,7 +17,8 @@
     "Profile",
     "Microphone",
     "Streaming",
-    "DesktopStreaming"
+    "DesktopStreaming",
+    "Clipboard"
   ],
   "data": {
     "start_window": "background",
