@@ -2,9 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { InGameOverlay } from '@code/components/in-game-overlay'
 import * as voice from '@/services/voice'
 import * as geminiService from '@/services/geminiFileSearch'
+import * as gameEvents from '@/services/gameEventsTracker'
+import * as predictionEngine from '../../services/predictionEngine'
 import { RAG_CONFIG } from '../../config/ragConfig'
 import { getAgentName } from '../utils/agentMapping'
 import { getMapName } from '../utils/valorantMappings'
+import { useAudioVisualizer } from '../hooks/useAudioVisualizer'
 
 type ChatMessage = { role: 'user' | 'model'; parts: Array<{ text: string }> }
 
@@ -22,9 +25,30 @@ export default function OverlayApp() {
   const [voiceRate, setVoiceRate] = useState<number>(1)
   const [autoSpeakOnKill, setAutoSpeakOnKill] = useState<boolean>(true)
   const [listening, setListening] = useState<boolean>(false)
+  const [thinking, setThinking] = useState<boolean>(false)
   const [settingsTrigger, setSettingsTrigger] = useState<number>(0)
   const [settingsHotkey, setSettingsHotkey] = useState<string>('Ctrl+Alt+S')
   const listeningRef = useRef(false)
+  const lastRoundPhaseRef = useRef<string>('unknown')
+  const lastShopOpenRef = useRef<number>(0)
+  const [alerts, setAlerts] = useState<gameEvents.UltAlert[]>([])
+  const [showRoundEndPrompt, setShowRoundEndPrompt] = useState<boolean>(false)
+
+  // Audio visualizer for voice input feedback
+  const audioData = useAudioVisualizer(listening, 16)
+
+  // Helper to request full game state from background
+  const requestFullGameState = useCallback(() => {
+    try {
+      (window as any).overwolf?.windows?.sendMessage(
+        'background',
+        { type: 'request_full_state' },
+        () => { }
+      )
+    } catch (e) {
+      console.error('Failed to request game state:', e)
+    }
+  }, [])
 
   // Auto-clear AI response after user-configured duration
   useEffect(() => {
@@ -53,10 +77,18 @@ export default function OverlayApp() {
     return { map, agent, allies, enemies }
   }, [overlayInfo])
 
-  // initialize gemini lazily
+  // initialize gemini and set up sync
   useEffect(() => {
     try { storeIdRef.current = RAG_CONFIG.defaultStoreId } catch { }
     try { geminiService.initialize() } catch { }
+
+    // Request initial game state immediately
+    requestFullGameState()
+
+    // Set up periodic sync every 15 seconds to ensure fresh data
+    const syncInterval = setInterval(() => {
+      requestFullGameState()
+    }, 15000)
 
     // Warm up microphone permission
     if (navigator.mediaDevices?.getUserMedia) {
@@ -69,7 +101,9 @@ export default function OverlayApp() {
           setDebugLog(prev => [`Microphone initialization failed: ${err.message}`, ...prev])
         })
     }
-  }, [])
+
+    return () => clearInterval(syncInterval)
+  }, [requestFullGameState])
 
   const parseValorantPayload = useCallback((raw: any) => {
     const tryParse = (value: any): any => {
@@ -89,7 +123,27 @@ export default function OverlayApp() {
 
   const queuePrompt = useCallback(async (hint: string) => {
     try {
+      // Sync state before processing prompt to ensure fresh data
+      requestFullGameState()
+
+      // Delay to allow sync to propagate through background service
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      setDebugLog(prev => [`queuePrompt started: "${hint.slice(0, 30)}..."`, ...prev].slice(0, 50))
+
+      // Check if we have useful game data before making API call
+      const gameState = gameEvents.getState()
+      setDebugLog(prev => [
+        `Game State: Round=${gameState.currentRound}, Map=${gameState.map}, Agent=${gameState.myAgent}, Scoreboard=${gameState.scoreboard.length}`,
+        ...prev
+      ].slice(0, 50))
+
+      if (!gameEvents.hasUsefulData()) {
+        setDebugLog(prev => [`No game data available, proceeding without context...`, ...prev].slice(0, 50))
+      }
+
       const prompt = buildCompositePrompt(hint)
+      setDebugLog(prev => [`Prompt built, length: ${prompt.length}`, ...prev].slice(0, 50))
 
       // Construct metadata filters based on game context
       const info = overlayInfo || {}
@@ -109,9 +163,9 @@ export default function OverlayApp() {
 
       // Normalize agent
       const agents = [
-        'Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 
-        'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon', 'Omen', 
-        'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Veto', 'Viper', 
+        'Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade',
+        'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon', 'Omen',
+        'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Veto', 'Viper',
         'Vyse', 'Waylay', 'Yoru'
       ]
       const queryAgent = agents.find(a => hint.toLowerCase().includes(a.toLowerCase()))
@@ -123,42 +177,101 @@ export default function OverlayApp() {
         filters.push(`agent = '${targetAgent}'`)
       }
 
-      // 2. Map Filter (Conditional)
-      // Only include map filter if:
-      // - The user explicitly asked about a map (queryMap exists)
-      // - OR there is NO agent target (general map question)
-      // We avoid adding currentMap filter if the user is asking about an Agent, to prevent noise.
-      if (queryMap || (!targetAgent && currentMap)) {
-         if (targetMap) filters.push(`map = '${targetMap}'`)
-      }
+      // 1b. Team Context (Synergy)
+      // If the user asks about "team", "we", "us", "our", include all teammate agents
+      const teamKeywords = ['team', 'we', 'us', 'our', 'strat', 'execute']
+      const hasTeamContext = teamKeywords.some(k => hint.toLowerCase().includes(k))
 
-      // Always include general guides
-      filters.push(`type = 'guide'`)
-      filters.push(`category = 'fundamentals'`)
-      filters.push(`category = 'game_sense'`)
-
-      const options = {
-        metadataFilter: filters.length > 0 ? filters.join(' OR ') : undefined
+      if (hasTeamContext) {
+        const teammates = gameData.allies || []
+        teammates.forEach(allyId => {
+          const name = getAgentName(allyId)
+          if (name && name !== 'unknown' && name !== agentName) {
+            filters.push(`agent = '${name}'`)
+          }
+        })
       }
+      // Combine map and agent filters
+      const conditions: string[] = []
+      if (targetMap) {
+        conditions.push(`map = '${targetMap}'`)
+      }
+      if (filters.length > 0) {
+        conditions.push(filters.length > 1 ? `(${filters.join(' OR ')})` : filters[0])
+      }
+      const options = conditions.length > 0 ? { metadataFilter: conditions.join(' AND ') } : undefined
 
       const res = await geminiService.fileSearch(storeIdRef.current || '', prompt, options)
       const text = (res.text || '').trim()
-      const cleanText = text.replace(/\*/g, '')
+
+      // Clean up response to remove internal reasoning/actions if they leak through
+      const cleanText = text
+        .split('\n')
+        .filter(line => {
+          const lower = line.toLowerCase().trim()
+          return !lower.startsWith('action:') &&
+            !lower.startsWith('thought:') &&
+            !lower.startsWith('search for') &&
+            !lower.startsWith('step id:') &&
+            !lower.startsWith('wait,')
+        })
+        .map(line => {
+          // Strip "Advice 1:", "Defense:", etc.
+          return line.replace(/^(Advice \d+|Option \d+|Defense|Attack|Note):/i, '').trim()
+        })
+        .filter(Boolean)
+        .join('\n')
+        .replace(/\*/g, '')
+        .trim()
+
+      // Handle empty response
+      if (!cleanText) {
+        setDebugLog(prev => [`Empty response from AI`, ...prev].slice(0, 50))
+        setOverlayAiQueue(["Error: AI didn't respond. Try again in a moment."])
+        return
+      }
 
       if (cleanText) {
         try { (window as any).overwolf?.utils?.placeOnClipboard(cleanText + '\n\n- Generated by OWNED AI') } catch { }
       }
 
-      if (responseMode !== 'speech') {
-        setOverlayAiQueue(cleanText ? [cleanText] : [])
-      } else {
-        setOverlayAiQueue([])
-      }
+      // ALWAYS show text, even in speech mode, to prevent "silent failure" if audio breaks
+      setOverlayAiQueue([cleanText])
+
       if (responseMode !== 'text' && cleanText) {
-        try { voice.speak(cleanText, { rate: voiceRate, volume: voiceVolume }) } catch { }
+        try {
+          setDebugLog(prev => [`Speaking response...`, ...prev].slice(0, 50))
+          await voice.speak(cleanText, { rate: voiceRate, volume: voiceVolume })
+          setDebugLog(prev => [`Speech completed`, ...prev].slice(0, 50))
+        } catch (voiceErr: any) {
+          console.error('Voice speak error:', voiceErr)
+          setDebugLog(prev => [`Voice error: ${voiceErr?.message || String(voiceErr)}`, ...prev].slice(0, 50))
+        }
       }
-    } catch { }
-  }, [responseMode, voiceRate, voiceVolume, overlayInfo])
+    } catch (err: any) {
+      const errorMsg = err?.message || String(err) || 'Unknown error'
+      const errorLower = errorMsg.toLowerCase()
+      console.error('queuePrompt error:', err)
+      setDebugLog(prev => [`ERROR: ${errorMsg}`, ...prev].slice(0, 50))
+
+      // User-friendly error messages for common issues
+      let userMessage = "Error: Something went wrong. Please try again."
+
+      if (errorLower.includes('quota') || errorLower.includes('rate limit') || errorLower.includes('429')) {
+        userMessage = "Error: Servers are busy. Please wait a moment and try again."
+      } else if (errorLower.includes('overloaded') || errorLower.includes('503') || errorLower.includes('unavailable')) {
+        userMessage = "Error: Servers are overloaded. Please try again shortly."
+      } else if (errorLower.includes('api key') || errorLower.includes('invalid')) {
+        userMessage = "Error: Configuration issue. Please restart the app."
+      } else if (errorLower.includes('network') || errorLower.includes('fetch') || errorLower.includes('timeout')) {
+        userMessage = "Error: Network issue. Check your internet connection."
+      } else if (errorLower.includes('not found')) {
+        userMessage = "Error: Knowledge base not found. Check your setup."
+      }
+
+      setOverlayAiQueue([userMessage])
+    }
+  }, [requestFullGameState, responseMode, voiceRate, voiceVolume, overlayInfo])
 
   const handleVoiceCommand = useCallback(async () => {
     if (listeningRef.current) return
@@ -171,9 +284,25 @@ export default function OverlayApp() {
       })
       const question = result.text.trim()
       setDebugLog(prev => [`Voice result: "${question}"`, ...prev])
+
+      // Stop listening UI immediately after speech is captured
+      setListening(false)
+
       if (!question) {
         return
       }
+
+      // If answering round-end prompt, record note and skip AI query
+      if (showRoundEndPrompt) {
+        predictionEngine.addUserNote(question)
+        setDebugLog(prev => [`Recorded round note: "${question}"`, ...prev])
+        setShowRoundEndPrompt(false)
+        setOverlayAiQueue([`Note recorded: "${question}"`])
+        return
+      }
+
+      // Start thinking UI while processing
+      setThinking(true)
       await queuePrompt(question)
     } catch (err: any) {
       const code = err?.code
@@ -194,7 +323,8 @@ export default function OverlayApp() {
       setOverlayAiQueue([`Voice error: ${err?.message || 'Unknown'}`])
     } finally {
       listeningRef.current = false
-      setListening(false)
+      setListening(false) // Ensure listening is off
+      setThinking(false) // Ensure thinking is off
       setDebugLog(prev => [`Voice command finished`, ...prev])
     }
   }, [queuePrompt])
@@ -207,16 +337,103 @@ export default function OverlayApp() {
         ...arr
       ].slice(0, 50))
     } catch { }
+
     if (payload?.type === 'info_update') {
       const info = payload.data?.info
       if (info) {
         // Debug: Log match_info keys to help diagnose missing data
         if (info.match_info) {
           const keys = Object.keys(info.match_info)
-          // Only log if there are keys we haven't seen or just periodically? 
-          // For now, just log it so user can see in debug panel.
-          // Filter out common spammy keys if needed, but seeing all is good.
           setDebugLog((prev) => [`Match Info Update: ${keys.join(', ')}`, ...prev].slice(0, 50))
+
+          // Process match_info for game events tracker
+          const mi = info.match_info
+
+          // Round phase changes - critical for state reset
+          if (mi.round_phase) {
+            const roundNum = mi.round_number ? parseInt(mi.round_number, 10) : undefined
+            gameEvents.onRoundPhaseChange(mi.round_phase, roundNum)
+
+            // Detect round-end for prediction engine
+            if (mi.round_phase === 'end' && lastRoundPhaseRef.current !== 'end') {
+              const gameState = gameEvents.getState()
+              // Record round data to prediction engine
+              predictionEngine.recordRound({
+                round: gameState.currentRound,
+                site: (gameState.thisRoundSpike?.location as 'A' | 'B' | 'C') || null,
+                outcome: 'unknown',
+                ultsUsed: [],
+                userNote: ''
+              })
+              setDebugLog(prev => [`Round ${gameState.currentRound} ended - data recorded`, ...prev].slice(0, 50))
+
+              // Trigger round-end prompt
+              setShowRoundEndPrompt(true)
+              // Auto-hide after 15 seconds
+              setTimeout(() => setShowRoundEndPrompt(false), 15000)
+            }
+
+            // Update ult alerts on phase change
+            setAlerts(gameEvents.getUltAlerts())
+            lastRoundPhaseRef.current = mi.round_phase
+          }
+
+          // Initialize prediction engine on match start
+          if (mi.match_id) {
+            const currentMatch = predictionEngine.getCurrentMatch()
+            if (!currentMatch || currentMatch.matchId !== mi.match_id) {
+              const enemies = gameEvents.getState().scoreboard.filter(p => !p.teammate).map(p => p.character)
+              const map = mi.map || gameEvents.getState().map
+              predictionEngine.initMatch(mi.match_id, map, enemies)
+              setDebugLog(prev => [`Match initialized: ${mi.match_id}`, ...prev].slice(0, 50))
+            }
+          }
+
+          // Team side
+          if (mi.team) {
+            gameEvents.processTeam(mi.team)
+          }
+
+          // Map
+          if (mi.map) {
+            gameEvents.processMap(mi.map)
+          }
+
+          // Process scoreboard first to ensure agent lookup works for killfeed
+          for (const key of keys) {
+            if (key.startsWith('scoreboard_')) {
+              try {
+                gameEvents.processScoreboard(key, mi[key])
+              } catch { }
+            }
+          }
+
+          // Kill feed events
+          if (mi.kill_feed) {
+            try {
+              const killData = typeof mi.kill_feed === 'string' ? JSON.parse(mi.kill_feed) : mi.kill_feed
+              gameEvents.processKillFeed(killData)
+              // Get the last processed kill with agent names
+              const state = gameEvents.getState()
+              const lastKill = state.thisRoundKills[state.thisRoundKills.length - 1]
+              if (lastKill) {
+                setDebugLog((prev) => [`Kill: ${lastKill.attacker} -> ${lastKill.victim}`, ...prev].slice(0, 50))
+              }
+            } catch { }
+          }
+        }
+
+        // Process 'me' info for abilities, health, agent
+        if (info.me) {
+          if (info.me.abilities) {
+            gameEvents.processAbilities(info.me.abilities)
+          }
+          if (info.me.health !== undefined) {
+            gameEvents.processHealth(parseInt(info.me.health, 10) || 100)
+          }
+          if (info.me.agent) {
+            gameEvents.processAgent(info.me.agent)
+          }
         }
 
         setOverlayInfo((prev: any) => {
@@ -232,14 +449,20 @@ export default function OverlayApp() {
         })
       }
     }
+
     if (payload?.type === 'new_events') {
       const events = payload.data?.events || []
       for (const ev of events) {
         if (ev.name === 'kill' && autoSpeakOnKill) {
           queuePrompt('Suggest quick post-kill positioning and utility follow-up.')
         }
+        // Shop open event - trigger buy advice removed per user request
+
       }
+      // Update ult alerts after any event
+      setAlerts(gameEvents.getUltAlerts())
     }
+
     if (payload?.type === 'voice_command') {
       handleVoiceCommand()
     }
@@ -269,13 +492,6 @@ export default function OverlayApp() {
   }, [autoSpeakOnKill, handleVoiceCommand, queuePrompt])
 
   useEffect(() => {
-    const ow: any = (window as any).overwolf
-    const onOwMessage = (event: any) => {
-      try {
-        const payload = parseValorantPayload(event)
-        if (payload) handleValorantPayload(payload)
-      } catch { }
-    }
     const onWindowMessage = (event: MessageEvent) => {
       try {
         const payload = parseValorantPayload(event.data)
@@ -338,12 +554,41 @@ export default function OverlayApp() {
     const enemies = roster.filter(r => !r.teammate).map(r => getAgentName(r.character)).join(', ')
     const agent = getAgentName((info.me || {}).agent || 'unknown')
     const map = getMapName(mi.map || 'unknown')
-    
+
+    // Get full game context including team economy from game events tracker
+    const gameContext = gameEvents.buildContextSummary()
+
+    // Get enemy pattern analysis
+    const patternSummary = predictionEngine.getPatternSummary()
+
+    // Get ult alerts
+    const ultAlerts = gameEvents.getUltAlerts()
+    const ultAlertText = ultAlerts.length > 0
+      ? ultAlerts.map(a => a.status === 'ready'
+        ? `⚠️ ${a.agent} ULT READY`
+        : `⚠️ ${a.agent} ult in ${a.orbsAway} orb${a.orbsAway > 1 ? 's' : ''}`
+      ).join('\n')
+      : ''
+
     // Add specific context about team composition balance
-    const allyRoles = allies.length ? `(Team: ${allies})` : ''
-    const enemyRoles = enemies.length ? `(Opponents: ${enemies})` : ''
-    
-    return `Context:\n- My Agent: ${agent}\n- Map: ${map}\n- My Team: ${allies || 'unknown'}\n- Enemy Team: ${enemies || 'unknown'}\n\nUser Question: "${userText}"\n\nTask: Provide tactical advice considering the specific matchups. If enemies have specific utility (like Cypher trips or Breach stuns), warn me. If my team lacks specific roles (like Smokes), suggest how to adapt.`
+    const side = gameEvents.getState().team
+    const sideContext = side !== 'unknown' ? `\n- Side: ${side.toUpperCase()}` : ''
+
+    return `=== LIVE GAME STATE ===
+${gameContext}
+
+${patternSummary ? `=== ENEMY PATTERNS ===\n${patternSummary}\n` : ''}
+${ultAlertText ? `=== ULT WARNINGS ===\n${ultAlertText}\n` : ''}
+=== USER QUESTION ===
+"${userText}"
+
+=== INSTRUCTIONS ===
+Provide tactical advice considering:
+1. ECONOMY: Check team credits above. DO NOT suggest weapons players cannot afford.
+2. ENEMY PATTERNS: Use pattern analysis if available to predict enemy behavior.
+3. ULT WARNINGS: If enemy ults are ready/almost ready, factor into tactical advice.
+4. MATCHUPS: Warn about specific enemy utility.
+Be concise and actionable.`
   }
 
   const debugEntries = debugLog.length ? debugLog : ['No overlay events yet.']
@@ -356,10 +601,15 @@ export default function OverlayApp() {
         hotkey={hotkey}
         mode={responseMode}
         aiText={overlayAiQueue[0] || ''}
-        gameData={gameData}
+        gameData={gameEvents.getState() as any}
+        hasGameContext={gameEvents.hasUsefulData()}
         listening={listening}
+        thinking={thinking}
+        audioLevels={audioData}
         settingsTrigger={settingsTrigger}
         settingsHotkey={settingsHotkey}
+        alerts={alerts}
+        showRoundEndPrompt={showRoundEndPrompt}
         onToggle={(next) => {
           if (!next) {
             try { voice.cancelListening() } catch { }

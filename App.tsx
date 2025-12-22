@@ -152,12 +152,9 @@ const App: React.FC = () => {
                     return next;
                 });
                 if (status === AppStatus.Chatting) {
-                    const phase = mi?.round_phase;
-                    if (phase === 'shopping') {
-                        const prompt = `Provide buy recommendations for the upcoming round in Valorant. Map: ${mi?.map || gameContext.map || 'unknown'}. Team: ${mi?.team || gameContext.team || 'unknown'}. Agent: ${me?.agent || gameContext.agent || 'unknown'}.`;
-                        handleSendMessage(prompt, { includeContext: false });
-                    }
+                    // Shopping phase prompt removed
                 }
+
             }
             if (payload && payload.type === 'new_events') {
                 const events = payload.data?.events || [];
