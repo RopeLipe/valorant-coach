@@ -18,7 +18,8 @@
     "Microphone",
     "Streaming",
     "DesktopStreaming",
-    "Clipboard"
+    "Clipboard",
+    "FileSystem"
   ],
   "data": {
     "start_window": "background",

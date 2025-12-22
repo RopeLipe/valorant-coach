@@ -5,12 +5,13 @@ import { Button } from "@ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@ui/tabs"
 import { Badge } from "@ui/badge"
 import { Progress } from "@ui/progress"
-import { Home, User, BarChart3, History, Brain, Settings, Send, Bot, Sparkles, AlertCircle, X, Minus, Trophy, Target, Crosshair, Activity, TrendingUp, TrendingDown, ChevronRight, Award } from 'lucide-react'
+import { Home, User, BarChart3, History, Brain, Settings, Send, Bot, Sparkles, AlertCircle, X, Minus, Trophy, Target, Crosshair, Activity, TrendingUp, TrendingDown, ChevronRight, Award, Video } from 'lucide-react'
 import React, { useState, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import DesktopSettingsPanel from "../../components/DesktopSettingsPanel"
 import logoUrl from "../../logo.svg?url"
 import AICoachView from "./AICoachView"
+import VODReviewView from "./VODReviewView"
 import OnboardingFlow from "./OnboardingFlow"
 import * as geminiService from "../../services/geminiFileSearch"
 import * as voice from "../../services/voice"
@@ -332,7 +333,8 @@ export function DesktopApp() {
               { id: "agents", icon: User, label: "Agents" },
               { id: "stats", icon: BarChart3, label: "Stats" },
               { id: "matches", icon: History, label: "Matches" },
-              { id: "guides", icon: Brain, label: "Coach" }
+              { id: "guides", icon: Brain, label: "Coach" },
+              { id: "vods", icon: Video, label: "VODs" }
             ].map((tab) => (
               <Button
                 key={tab.id}
@@ -717,6 +719,19 @@ export function DesktopApp() {
                       onNewChat={handleNewChat}
                       exampleQuestions={exampleQuestions}
                     />
+                  </motion.div>
+                )}
+
+                {selectedTab === "vods" && (
+                  <motion.div
+                    key="vods"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.3 }}
+                    className="h-full flex flex-col"
+                  >
+                    <VODReviewView />
                   </motion.div>
                 )}
               </AnimatePresence>
