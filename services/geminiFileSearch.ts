@@ -9,6 +9,7 @@ import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { RagStore, Document, QueryResult } from '../types';
 import { AGENT_ASSETS } from '../src/utils/agentAssets';
 import { formatCalloutsForPrompt } from '../src/utils/mapCallouts';
+import { RAG_CONFIG } from '../config/ragConfig';
 
 let ai: GoogleGenAI;
 
@@ -529,7 +530,7 @@ export async function fileSearch(
         // Enrich query for better retrieval - append keywords that match RAG file naming
         const enrichedQuery = enrichQuery(query);
         const systemInstruction = options?.systemInstruction || buildSystemInstruction(options);
-        const model = options?.model || 'gemini-3.1-flash-lite-preview';
+        const model = options?.model || RAG_CONFIG.defaultModel;
 
         // Helper to invoke the model with a given token/thinking budget so we
         // can retry with more headroom if the first attempt returns empty.
@@ -603,7 +604,7 @@ export async function generateExampleQuestions(ragStoreName: string): Promise<st
             : `fileSearchStores/${ragStoreName}`;
 
         const response = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-preview',
+            model: RAG_CONFIG.defaultModel,
             contents: "You are a professional Valorant coach. Based on the provided gameplay data (VOD reviews, match history, guides, etc.), generate 4 short and practical example questions a player might ask to improve. Return the questions as a JSON array of strings.",
             config: {
                 tools: [
@@ -763,7 +764,7 @@ export async function analyzeMatchHistory(matches: any[]): Promise<string> {
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-preview',
+            model: RAG_CONFIG.defaultModel,
             contents: prompt,
         });
         return response.text;

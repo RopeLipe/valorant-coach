@@ -28,6 +28,11 @@ export function getDefaultStoreId(): string {
  * Default RAG store configuration
  */
 export const RAG_CONFIG = {
+    // Default model to use
+    defaultModel: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_MODEL) ||
+                  (typeof process !== 'undefined' && process.env?.VITE_GEMINI_MODEL) ||
+                  'gemini-3.1-flash-lite',
+
     // Your persistent file search store
     defaultStoreId: getDefaultStoreId(),
 

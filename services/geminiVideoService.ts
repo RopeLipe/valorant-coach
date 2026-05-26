@@ -4,6 +4,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { RAG_CONFIG } from "../config/ragConfig";
 
 let ai: GoogleGenAI | null = null;
 
@@ -143,7 +144,7 @@ export async function analyzeVideoStructured(
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-preview',
+            model: RAG_CONFIG.defaultModel,
             contents: [
                 {
                     role: 'user',
@@ -217,7 +218,7 @@ export async function analyzeVideo(fileUri: string, prompt: string): Promise<str
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-preview',
+            model: RAG_CONFIG.defaultModel,
             contents: [
                 {
                     role: 'user',

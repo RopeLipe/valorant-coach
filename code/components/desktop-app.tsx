@@ -21,6 +21,8 @@ import { ChatMessage } from "../../types"
 import { AGENT_LIST, AgentAsset, AGENT_ASSETS } from "../../src/utils/agentAssets"
 import { AgentCard } from "../../src/components/AgentCard"
 import { RiotService } from "../../services/riotService"
+import StatsView from "./StatsView"
+import AgentDetailPanel from "./AgentDetailPanel"
 
 export function DesktopApp() {
   const [selectedTab, setSelectedTab] = useState("home")
@@ -30,6 +32,8 @@ export function DesktopApp() {
   const contentRef = useRef<HTMLDivElement | null>(null)
   const topAgentsRef = useRef<HTMLDivElement | null>(null)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [selectedAgent, setSelectedAgent] = useState<AgentAsset | null>(null)
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false)
 
   useEffect(() => {
     try {
@@ -352,6 +356,9 @@ export function DesktopApp() {
                     className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-black rounded-r-full"
                   />
                 )}
+                <span className="absolute left-20 ml-2 px-3 py-1.5 bg-black border border-white/20 text-white text-[10px] font-mono font-bold tracking-wider uppercase rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:translate-x-2 transition-all duration-200 shadow-xl whitespace-nowrap z-50">
+                  {tab.label}
+                </span>
               </Button>
             ))}
           </div>
@@ -361,10 +368,13 @@ export function DesktopApp() {
           <Button
             variant="ghost"
             size="icon"
-            className="w-12 h-12 rounded-xl text-white/40 hover:text-white hover:bg-white/5 transition-all duration-200"
+            className="w-12 h-12 rounded-xl text-white/40 hover:text-white hover:bg-white/5 transition-all duration-200 relative group"
             onClick={() => setSettingsOpen(true)}
           >
             <Settings className="w-6 h-6" />
+            <span className="absolute left-20 ml-2 px-3 py-1.5 bg-black border border-white/20 text-white text-[10px] font-mono font-bold tracking-wider uppercase rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:translate-x-2 transition-all duration-200 shadow-xl whitespace-nowrap z-50">
+              Settings
+            </span>
           </Button>
         </motion.div>
 
@@ -699,12 +709,26 @@ export function DesktopApp() {
                           key={agent.uuid}
                           agent={agent}
                           onClick={(a) => {
-                            window.open(`https://valorant.fandom.com/wiki/${agent.displayName}`, '_blank')
+                            setSelectedAgent(agent)
+                            setAgentPanelOpen(true)
                           }}
                           className="aspect-square shadow-xl"
                         />
                       ))}
                     </div>
+                  </motion.div>
+                )}
+
+                {selectedTab === "stats" && (
+                  <motion.div
+                    key="stats"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.3 }}
+                    className="h-full overflow-hidden"
+                  >
+                    <StatsView />
                   </motion.div>
                 )}
 
@@ -755,10 +779,11 @@ export function DesktopApp() {
             exit={{ scale: 0.95, opacity: 0 }}
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           >
-            <DesktopSettingsPanel
+             <DesktopSettingsPanel
               diagnostics={diagnostics}
               diagnosticsRunning={diagnosticsRunning}
               onRunDiagnostics={handleRunDiagnostics}
+              onClose={() => setSettingsOpen(false)}
             />
           </motion.div>
         </div>
@@ -773,6 +798,15 @@ export function DesktopApp() {
           >
             <OnboardingFlow onComplete={handleOnboardingComplete} />
           </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {agentPanelOpen && (
+          <AgentDetailPanel
+            agent={selectedAgent}
+            isOpen={agentPanelOpen}
+            onClose={() => setAgentPanelOpen(false)}
+          />
         )}
       </AnimatePresence>
     </div>

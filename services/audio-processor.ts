@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { RAG_CONFIG } from "../config/ragConfig";
 
 const VAD_THRESHOLD = 0.02; // Sensitivity
 const SILENCE_DURATION = 1000; // Time to wait before stopping recording
@@ -115,7 +116,7 @@ export class AudioProcessor {
                 const base64data = reader.result as string;
                 const base64Content = base64data.split(',')[1];
 
-                const model = this.genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
+                const model = this.genAI.getGenerativeModel({ model: RAG_CONFIG.defaultModel });
 
                 try {
                     const result = await this.retryWithBackoff(async () => {

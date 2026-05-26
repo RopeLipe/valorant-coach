@@ -114,12 +114,14 @@ interface DesktopSettingsPanelProps {
   diagnostics: DiagnosticResult[]
   diagnosticsRunning: boolean
   onRunDiagnostics: () => Promise<void> | void
+  onClose?: () => void
 }
 
 export default function DesktopSettingsPanel({
   diagnostics,
   diagnosticsRunning,
-  onRunDiagnostics
+  onRunDiagnostics,
+  onClose
 }: DesktopSettingsPanelProps) {
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([])
   const [micStatus, setMicStatus] = useState<string>("")
@@ -393,6 +395,14 @@ export default function DesktopSettingsPanel({
           </h2>
           <p className="text-xs text-white/50 mt-1 font-medium uppercase tracking-wider">Configuration & Diagnostics</p>
         </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full border border-white/10 hover:bg-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-8 space-y-8 no-scrollbar">
