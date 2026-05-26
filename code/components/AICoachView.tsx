@@ -2,6 +2,32 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage } from '../../types';
 import { Send, Bot, User, Sparkles } from 'lucide-react';
 import { Button } from '@ui/button';
+import { motion } from 'framer-motion';
+
+const AudioWaveformVisualizer: React.FC<{ active: boolean }> = ({ active }) => {
+    const bars = [6, 16, 12, 22, 10, 18, 8, 14, 4];
+    return (
+        <div className="flex items-center gap-[3px] h-6 px-1">
+            {bars.map((maxHeight, idx) => (
+                <motion.div
+                    key={idx}
+                    animate={active ? {
+                        height: [4, maxHeight, 4],
+                    } : {
+                        height: 4
+                    }}
+                    transition={{
+                        repeat: Infinity,
+                        duration: 0.6 + idx * 0.08,
+                        ease: "easeInOut"
+                    }}
+                    className="w-[3px] bg-white rounded-full"
+                    style={{ height: 4 }}
+                />
+            ))}
+        </div>
+    );
+};
 
 interface AICoachViewProps {
     history: ChatMessage[];
@@ -138,10 +164,9 @@ const AICoachView: React.FC<AICoachViewProps> = ({
                                 <div className="w-8 h-8 rounded-lg bg-black/60 border border-white/10 flex items-center justify-center flex-shrink-0">
                                     <Bot className="w-4 h-4 text-white" />
                                 </div>
-                                <div className="px-5 py-4 rounded-2xl rounded-tl-sm bg-black/60 border border-white/10 flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-bounce" style={{ animationDelay: '0ms' }} />
-                                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-bounce" style={{ animationDelay: '150ms' }} />
-                                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-bounce" style={{ animationDelay: '300ms' }} />
+                                <div className="px-5 py-3 rounded-2xl rounded-tl-sm bg-black/60 border border-white/10 flex items-center gap-3">
+                                    <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Analyzing Context</span>
+                                    <AudioWaveformVisualizer active={true} />
                                 </div>
                             </div>
                         )}

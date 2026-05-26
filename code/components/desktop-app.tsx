@@ -526,7 +526,65 @@ export function DesktopApp() {
                         ))}
                       </div>
                     </section>
+ 
+                    {/* Live Match Companion Telemetry Card */}
+                    <motion.section variants={itemVariants}>
+                      <Card className="p-6 bg-[#060606] border border-white/10 rounded-2xl shadow-[0_0_20px_rgba(0,0,0,0.5)] backdrop-blur-md relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-48 h-48 bg-white/[0.01] rounded-full translate-x-12 -translate-y-12 blur-2xl group-hover:scale-110 transition-transform duration-500" />
+                        
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+                          {/* Connection details */}
+                          <div className="flex items-center gap-4">
+                            <div className="relative flex items-center justify-center w-12 h-12 rounded-xl bg-white/5 border border-white/10">
+                              <Activity className="w-6 h-6 text-white animate-pulse" />
+                              <div className="absolute inset-0 bg-white/5 animate-ping rounded-xl opacity-20" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold uppercase tracking-wider text-white">Live Match Companion</h3>
+                                <Badge className="bg-white/10 text-white hover:bg-white/10 border-none font-mono text-[9px] px-2 py-0.5 rounded flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                  ACTIVE
+                                </Badge>
+                                <div className="flex items-center gap-[3px] h-3 ml-1">
+                                  {[2, 7, 4, 9, 3].map((h, i) => (
+                                    <motion.div
+                                      key={i}
+                                      animate={{ height: [2, h, 2] }}
+                                      transition={{ repeat: Infinity, duration: 0.5 + i * 0.1, ease: "easeInOut" }}
+                                      className="w-[2px] bg-white/60 rounded-full"
+                                      style={{ height: 2 }}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                              <p className="text-xs text-white/50 mt-1 font-mono">Telemetry link: Connected to Overwolf GEP client</p>
+                            </div>
+                          </div>
 
+                          {/* Detail metrics grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 md:justify-end">
+                            <div className="bg-black/40 border border-white/5 p-3 rounded-xl min-w-[120px]">
+                              <span className="text-[9px] text-white/40 uppercase font-mono block">Selected Agent</span>
+                              <span className="text-xs font-bold text-white uppercase block mt-0.5">Astra (Controller)</span>
+                            </div>
+                            <div className="bg-black/40 border border-white/5 p-3 rounded-xl min-w-[120px]">
+                              <span className="text-[9px] text-white/40 uppercase font-mono block">Current Map</span>
+                              <span className="text-xs font-bold text-white uppercase block mt-0.5">Ascent</span>
+                            </div>
+                            <div className="bg-black/40 border border-white/5 p-3 rounded-xl min-w-[120px]">
+                              <span className="text-[9px] text-white/40 uppercase font-mono block">Voice Hotkey</span>
+                              <span className="text-xs font-bold text-white font-mono block mt-0.5">Ctrl+Alt+C</span>
+                            </div>
+                            <div className="bg-black/40 border border-white/5 p-3 rounded-xl min-w-[120px]">
+                              <span className="text-[9px] text-white/40 uppercase font-mono block">AI Credit Budget</span>
+                              <span className="text-xs font-bold text-white uppercase block mt-0.5 font-mono">Unlimited (Dev)</span>
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    </motion.section>
+ 
                     <section>
                       <div className="grid grid-cols-3 gap-6">
                         {/* AI Insights */}

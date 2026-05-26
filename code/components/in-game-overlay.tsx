@@ -17,6 +17,35 @@ const SUGGESTIONS = [
 
 const LISTENING_BARS = [18, 26, 22, 32, 20, 30, 24, 28]
 
+const AudioWaveformVisualizer: React.FC<{ active: boolean; levels?: number[] }> = ({ active, levels }) => {
+  const defaultBars = [6, 16, 12, 22, 10, 18, 8, 14, 4];
+  const bars = (levels && levels.length >= 8) 
+    ? levels.slice(0, 9).map(v => Math.max(4, Math.round(v * 28)))
+    : defaultBars;
+
+  return (
+    <div className="flex items-center gap-[3px] h-6 justify-center">
+      {bars.map((maxHeight, idx) => (
+        <motion.div
+          key={idx}
+          animate={active ? {
+            height: [4, maxHeight, 4],
+          } : {
+            height: 4
+          }}
+          transition={{
+            repeat: Infinity,
+            duration: 0.6 + idx * 0.08,
+            ease: "easeInOut"
+          }}
+          className="w-[3px] bg-white rounded-full"
+          style={{ height: 4 }}
+        />
+      ))}
+    </div>
+  );
+};
+
 type OverlayProps = {
   listening?: boolean
   onToggle?: (next: boolean) => void
@@ -313,28 +342,15 @@ export function InGameOverlay(props: OverlayProps) {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex flex-col items-center justify-center py-4 space-y-3"
+          className="flex flex-col items-center justify-center py-4 space-y-4"
         >
-          <div className="relative">
-            <Brain className="w-8 h-8 text-white/90 animate-pulse" />
-            <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-400 rounded-full animate-ping" />
+          <div className="relative flex items-center justify-center w-12 h-12 rounded-xl bg-white/5 border border-white/10">
+            <Brain className="w-6 h-6 text-white animate-pulse" />
+            <div className="absolute inset-0 bg-white/5 animate-ping rounded-xl opacity-20" />
           </div>
-          <div className="flex gap-2">
-            <motion.div
-              animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
-              transition={{ repeat: Infinity, duration: 1, delay: 0 }}
-              className="w-1.5 h-1.5 bg-white rounded-full"
-            />
-            <motion.div
-              animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
-              transition={{ repeat: Infinity, duration: 1, delay: 0.2 }}
-              className="w-1.5 h-1.5 bg-white rounded-full"
-            />
-            <motion.div
-              animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
-              transition={{ repeat: Infinity, duration: 1, delay: 0.4 }}
-              className="w-1.5 h-1.5 bg-white rounded-full"
-            />
+          <div className="space-y-2 text-center w-full">
+            <AudioWaveformVisualizer active={true} />
+            <p className="text-[9px] text-white/40 uppercase tracking-widest font-mono mt-1">Analyzing Match Context</p>
           </div>
         </motion.div>
       )
@@ -371,8 +387,8 @@ export function InGameOverlay(props: OverlayProps) {
             }}
             className={`backdrop-blur-xl overflow-hidden ${isError
               ? 'bg-black/90 border border-red-500/30 shadow-[0_0_40px_rgba(220,38,38,0.15)]'
-              : `bg-black/80 border border-white/20 ${showCard ? 'shadow-[0_12px_40px_rgba(0,0,0,0.45)]' : 'hover:border-white/50'}`
-              } ${isListening ? 'border-2 border-white shadow-[0_0_30px_rgba(255,255,255,0.3)]' : ''}`}
+              : `bg-[#050505]/75 border border-white/10 ${showCard ? 'shadow-[0_0_25px_rgba(255,255,255,0.05),0_12px_40px_rgba(0,0,0,0.6)]' : 'hover:border-white/30'}`
+              } ${isListening ? 'border border-white shadow-[0_0_35px_rgba(255,255,255,0.18)]' : ''}`}
           >
             <div className={`px-5 py-4 ${showCard ? 'space-y-4' : ''}`}>
               {!showCard ? (
