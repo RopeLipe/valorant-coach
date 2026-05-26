@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo } from "react"
 import { Mic, Sparkles, Bot, Brain, XCircle, AlertTriangle, ThumbsUp, ThumbsDown } from "lucide-react"
 import { ScrollArea } from "@ui/scroll-area"
 import { motion, AnimatePresence } from "framer-motion"
@@ -156,6 +156,36 @@ function parseRichText(text: string) {
 
   return <>{parts}</>
 }
+
+const OverlayStepTracker = ({ currentState }: { currentState: 'listening' | 'thinking' | 'advising' | 'idle' }) => {
+  const steps = [
+    { id: 'idle', label: 'IDLE' },
+    { id: 'listening', label: 'LISTEN' },
+    { id: 'thinking', label: 'THINK' },
+    { id: 'advising', label: 'ADVISE' }
+  ];
+
+  return (
+    <div className="flex items-center justify-between w-full border-b border-white/5 pb-2 mb-1 font-mono text-[8px] tracking-widest font-bold">
+      {steps.map((s, idx) => {
+        const isActive = currentState === s.id;
+        const isCompleted = 
+          (currentState === 'listening' && idx === 0) ||
+          (currentState === 'thinking' && idx <= 1) ||
+          (currentState === 'advising' && idx <= 2);
+          
+        return (
+          <React.Fragment key={s.id}>
+            {idx > 0 && <div className={`h-[1px] flex-1 mx-2 ${isCompleted ? 'bg-white/40' : 'bg-white/10'}`} />}
+            <span className={`transition-colors duration-300 ${isActive ? 'text-white' : (isCompleted ? 'text-white/60' : 'text-white/20')}`}>
+              {s.label}
+            </span>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
 
 export function InGameOverlay(props: OverlayProps) {
   const { listening = false, onToggle, hotkey, mode = 'both', aiText = '', gameData, settingsTrigger = 0, settingsHotkey, thinking = false, isError = false, hasGameContext = true, audioLevels, alerts = [], showRoundEndPrompt = false, onRate } = props
@@ -385,10 +415,18 @@ export function InGameOverlay(props: OverlayProps) {
               damping: 30,
               mass: 0.8
             }}
-            className={`backdrop-blur-xl overflow-hidden ${isError
-              ? 'bg-black/90 border border-red-500/30 shadow-[0_0_40px_rgba(220,38,38,0.15)]'
-              : `bg-[#050505]/75 border border-white/10 ${showCard ? 'shadow-[0_0_25px_rgba(255,255,255,0.05),0_12px_40px_rgba(0,0,0,0.6)]' : 'hover:border-white/30'}`
-              } ${isListening ? 'border border-white shadow-[0_0_35px_rgba(255,255,255,0.18)]' : ''}`}
+            className={`backdrop-blur-xl overflow-hidden border transition-all duration-300 ${isError
+              ? 'bg-black/90 border-red-500/30 shadow-[0_0_40px_rgba(220,38,38,0.15)]'
+              : (isListening
+                  ? 'bg-[#050505]/75 border-white shadow-[0_0_35px_rgba(255,255,255,0.18)]'
+                  : (thinking
+                      ? 'bg-[#050505]/75 border-white/30 shadow-[0_0_20px_rgba(255,255,255,0.06)]'
+                      : (aiText && !showRoundEndPrompt
+                          ? 'bg-[#050505]/75 border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.04)]'
+                          : `bg-[#050505]/75 border-white/10 ${showCard ? 'shadow-[0_0_20px_rgba(0,0,0,0.5)]' : 'hover:border-white/30'}`
+                        )
+                    )
+                )}`}
           >
             <div className={`px-5 py-4 ${showCard ? 'space-y-4' : ''}`}>
               {!showCard ? (
@@ -418,6 +456,7 @@ export function InGameOverlay(props: OverlayProps) {
                   exit={{ opacity: 0 }}
                   className="space-y-4"
                 >
+                  <OverlayStepTracker currentState={isListening ? 'listening' : (thinking ? 'thinking' : (aiText && !showRoundEndPrompt ? 'advising' : 'idle'))} />
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center backdrop-blur-md border shadow-inner ${isError ? 'bg-red-500/10 border-red-500/20' : 'bg-white/10 border-white/10'}`}>
                       {isError ? <XCircle className="w-5 h-5 text-red-500" /> : <Bot className="w-5 h-5 text-white" />}
