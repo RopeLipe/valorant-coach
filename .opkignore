@@ -1,0 +1,76 @@
+# Files & folders excluded from the packaged OPK.
+# The release flow packs ./dist (which is self-contained), so this is a
+# safety net for cases where `ow opk pack .` is run from the repo root.
+
+# Source
+src/
+admin/
+overlay/
+components/
+code/
+services/
+utils/
+lib/
+config/
+hooks/
+examples/
+scripts/
+website/
+
+# Source files
+*.ts
+*.tsx
+*.map
+App.tsx
+background.ts
+types.ts
+
+# HTML entry points (the built copies live in dist/)
+overlay.html
+desktop.html
+background.html
+admin.html
+
+# Tooling / config
+node_modules/
+.vite/
+build/
+.git/
+.github/
+.vscode/
+.idea/
+tsconfig.json
+vite.config.ts
+postcss.config.cjs
+tailwind.config.cjs
+package.json
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+.npmrc
+.gitignore
+.env
+.env.*
+
+# Tests / diagnostics
+test-*.js
+test-*.cjs
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+diagnostic-*.txt
+diagnostic-*.json
+stores-list.json
+list-stores.js
+
+# Docs / assets not shipped
+README.md
+*.md
+metadata.json
+logo.svg
+OWNEDAIYOURVALORANTAICOACH.png
+
+# OS junk
+.DS_Store
+Thumbs.db

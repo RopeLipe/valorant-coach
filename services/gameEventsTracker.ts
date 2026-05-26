@@ -33,6 +33,13 @@ export interface RoundSummary {
     outcome?: 'won' | 'lost'
     kills: KillEvent[]
     spikeEvent?: SpikeEvent
+    // Captured at archive time so post-round consumers see what happened without
+    // re-querying volatile state. `ultsUsed` is the accumulator from continuous
+    // sampling (see processScoreboard) rather than a one-shot end-of-round diff.
+    ultsUsed?: string[]
+    enemyFirstKill?: string | null
+    plantSite?: 'A' | 'B' | 'C' | null
+    aggressivePlay?: boolean
 }
 
 export interface UltAlert {
@@ -68,13 +75,21 @@ export interface GameEventsState {
     team: 'attack' | 'defense' | 'unknown'
     roundHistory: RoundSummary[]
     matchId?: string
+    score: { won: number; lost: number }  // Track team score
 
     // === RESET EACH ROUND ===
     roundPhase: 'shopping' | 'combat' | 'end' | 'unknown'
+    roundStartTime: number  // For timing analysis
     thisRoundKills: KillEvent[]
     thisRoundSpike?: SpikeEvent
     aliveAllies: string[]
     aliveEnemies: string[]
+    previousUltPoints: Map<string, number>  // Track ult usage by comparing
+    // Accumulator for enemy ults used during the current round. Populated by
+    // continuous sampling inside processScoreboard — the prior approach only
+    // sampled at round-end and missed any ult used mid-combat whose previous
+    // snapshot had already decayed.
+    thisRoundUltsUsed: string[]
 
     // === LIVE (updates constantly) ===
     scoreboard: ScoreboardPlayer[]
@@ -90,6 +105,10 @@ const MAX_ROUND_HISTORY = 3
 const MAX_EVENT_AGE_MS = 3 * 60 * 1000 // 3 minutes
 
 let state: GameEventsState = createInitialState()
+// Timestamp of the last scoreboard update. Used by hasFreshEconomyData() to
+// suppress economy output built from stale data (e.g. seconds after a round
+// reset, before GEP has sent refreshed credit values).
+let lastScoreboardUpdateAt = 0
 
 function createInitialState(): GameEventsState {
     return {
@@ -97,10 +116,14 @@ function createInitialState(): GameEventsState {
         team: 'unknown',
         roundHistory: [],
         roundPhase: 'unknown',
+        score: { won: 0, lost: 0 },
+        roundStartTime: 0,
         thisRoundKills: [],
         thisRoundSpike: undefined,
         aliveAllies: [],
         aliveEnemies: [],
+        previousUltPoints: new Map(),
+        thisRoundUltsUsed: [],
         scoreboard: [],
         myAbilities: { C: false, Q: false, E: false, X: false },
         myHealth: 100,
@@ -117,43 +140,150 @@ export function getState(): Readonly<GameEventsState> {
 
 export function resetState(): void {
     state = createInitialState()
+    lastScoreboardUpdateAt = 0
+}
+
+/**
+ * Returns true if the scoreboard has been updated recently AND at least half
+ * the ally slots have a non-zero credit value. Used to gate economy output —
+ * otherwise a partially-populated scoreboard right after a round reset can
+ * make the team look broke when it isn't.
+ */
+export function hasFreshEconomyData(): boolean {
+    if (lastScoreboardUpdateAt === 0) return false
+    if (Date.now() - lastScoreboardUpdateAt > 15000) return false
+    const allies = state.scoreboard.filter(p => p.teammate)
+    if (allies.length === 0) return false
+    const withCredits = allies.filter(p => p.money > 0).length
+    return withCredits >= Math.min(2, allies.length)
+}
+
+// ============ PERSISTENCE ============
+
+const STORAGE_PREFIX = 'valorant_coach_tracker_'
+const STORAGE_SCHEMA = 1
+
+type PersistedState = {
+    schema: number
+    state: Omit<GameEventsState, 'previousUltPoints'> & {
+        previousUltPoints: Array<[string, number]>
+    }
+}
+
+function storageKeyFor(matchId: string | undefined): string {
+    return `${STORAGE_PREFIX}${matchId || 'anonymous'}`
+}
+
+/** Snapshot the live state so it survives an overlay window reload. */
+export function saveState(): void {
+    try {
+        if (typeof localStorage === 'undefined') return
+        const payload: PersistedState = {
+            schema: STORAGE_SCHEMA,
+            state: {
+                ...state,
+                previousUltPoints: Array.from(state.previousUltPoints.entries()),
+            },
+        }
+        localStorage.setItem(storageKeyFor(state.matchId), JSON.stringify(payload))
+    } catch { }
+}
+
+/** Restore state for a given match id. Returns true if hydration happened. */
+export function hydrate(matchId?: string): boolean {
+    try {
+        if (typeof localStorage === 'undefined') return false
+        const raw = localStorage.getItem(storageKeyFor(matchId))
+        if (!raw) return false
+        const parsed = JSON.parse(raw) as PersistedState
+        if (parsed.schema !== STORAGE_SCHEMA) return false
+        state = {
+            ...parsed.state,
+            previousUltPoints: new Map(parsed.state.previousUltPoints || []),
+            // Backfill fields added after a persisted snapshot was written.
+            thisRoundUltsUsed: parsed.state.thisRoundUltsUsed || [],
+        }
+        return true
+    } catch {
+        return false
+    }
+}
+
+/** Remove stored tracker snapshots older than N days to avoid bloat. */
+export function pruneOldSnapshots(maxAgeDays = 3): void {
+    try {
+        if (typeof localStorage === 'undefined') return
+        const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i)
+            if (!key || !key.startsWith(STORAGE_PREFIX)) continue
+            try {
+                const raw = localStorage.getItem(key)
+                if (!raw) continue
+                const parsed = JSON.parse(raw) as PersistedState
+                const rs = parsed.state?.roundStartTime ?? 0
+                if (rs && rs < cutoff) localStorage.removeItem(key)
+            } catch {
+                localStorage.removeItem(key)
+            }
+        }
+    } catch { }
 }
 
 // ============ EVENT PROCESSORS ============
 
 /**
+ * Normalize the raw GEP phase string into the internal FSM buckets. Valorant
+ * occasionally emits `game_end`, `pre_round`, `match_end`, and a few other
+ * undocumented values that we previously dropped into the 'unknown' bin,
+ * breaking round-end side effects on reload.
+ */
+function normalizePhase(raw: string): GameEventsState['roundPhase'] {
+    const p = (raw || '').toLowerCase()
+    if (p === 'shopping' || p === 'pre_round' || p === 'preround') return 'shopping'
+    if (p === 'combat' || p === 'active' || p === 'round' || p === 'playing') return 'combat'
+    if (p === 'end' || p === 'round_end' || p === 'post_round' || p === 'postround') return 'end'
+    if (p === 'game_end' || p === 'match_end') return 'end'
+    return 'unknown'
+}
+
+/**
  * Process round phase change - CRITICAL for state reset
  */
 export function onRoundPhaseChange(phase: string, roundNum?: number): void {
-    const now = Date.now()
     const newRound = roundNum ?? state.currentRound
+    const normalized = normalizePhase(phase)
 
-    // Detect new round start (shopping phase)
-    if (phase === 'shopping' && newRound > state.currentRound) {
-        // Archive previous round if we have data
-        if (state.currentRound > 0 && state.thisRoundKills.length > 0) {
-            const roundSummary: RoundSummary = {
-                roundNumber: state.currentRound,
-                kills: [...state.thisRoundKills],
-                spikeEvent: state.thisRoundSpike,
-            }
-            state.roundHistory.push(roundSummary)
-            // Keep only last N rounds
-            if (state.roundHistory.length > MAX_ROUND_HISTORY) {
-                state.roundHistory.shift()
-            }
+    // Archive on any new-round transition (shopping with a higher round number).
+    // The previous implementation required `thisRoundKills.length > 0`, which
+    // silently dropped pistol-round saves and one-sided rounds where no kills
+    // were recorded — poisoning downstream pattern analysis.
+    if (normalized === 'shopping' && newRound > state.currentRound && state.currentRound > 0) {
+        const roundSummary: RoundSummary = {
+            roundNumber: state.currentRound,
+            kills: [...state.thisRoundKills],
+            spikeEvent: state.thisRoundSpike,
+            ultsUsed: [...state.thisRoundUltsUsed],
+            enemyFirstKill: getEnemyFirstKill(),
+            plantSite: (state.thisRoundSpike?.location as 'A' | 'B' | 'C') || null,
+            aggressivePlay: wasAggressiveRound(),
+        }
+        state.roundHistory.push(roundSummary)
+        if (state.roundHistory.length > MAX_ROUND_HISTORY) {
+            state.roundHistory.shift()
         }
 
         // Reset per-round state
         state.thisRoundKills = []
         state.thisRoundSpike = undefined
+        state.thisRoundUltsUsed = []
+        state.roundStartTime = 0
 
-        // Alive status will be refreshed from scoreboard
         refreshAliveStatusFromScoreboard()
     }
 
     state.currentRound = newRound
-    state.roundPhase = phase as GameEventsState['roundPhase']
+    state.roundPhase = normalized
 }
 
 /**
@@ -164,15 +294,18 @@ export function processKillFeed(data: any): void {
 
     const now = Date.now()
 
-    // Look up agent names from scoreboard using player names
+    // Resolve agent names from the scoreboard. Falling back to the raw player
+    // name would pollute downstream pattern analysis (enemyFirstKill, agent
+    // tendencies) with non-agent strings, so we use 'Unknown' until the
+    // scoreboard catches up.
     const attackerAgent = getAgentByPlayerName(data.attacker || '')
     const victimAgent = getAgentByPlayerName(data.victim || '')
 
     const killEvent: KillEvent = {
         timestamp: now,
         roundNumber: state.currentRound,
-        attacker: attackerAgent || data.attacker || 'Unknown',
-        victim: victimAgent || data.victim || 'Unknown',
+        attacker: attackerAgent || 'Unknown',
+        victim: victimAgent || 'Unknown',
         weapon: getWeaponName(data.weapon || ''),
         headshot: data.headshot === true,
         isAttackerTeammate: data.is_attacker_teammate === true,
@@ -182,7 +315,7 @@ export function processKillFeed(data: any): void {
             data.assist2,
             data.assist3,
             data.assist4,
-        ].filter(Boolean).map(name => getAgentByPlayerName(name)),
+        ].filter(Boolean).map(name => getAgentByPlayerName(name) || 'Unknown'),
     }
 
     state.thisRoundKills.push(killEvent)
@@ -226,46 +359,94 @@ export function processSpikeEvent(eventName: string, data?: any): void {
 }
 
 /**
- * Process scoreboard update
+ * Process scoreboard update.
+ *
+ * GEP frequently sends PARTIAL scoreboard payloads (e.g. just `{ alive: false }`
+ * or `{ money: 4200 }`). A wholesale replace would zero out every field the
+ * partial didn't include — that's why the economy readout kept going wrong.
+ * We merge only the fields that are explicitly present in the incoming payload
+ * and fall back to the previous record (or the type default for brand-new
+ * players) for everything else.
  */
 export function processScoreboard(key: string, data: any): void {
     if (!data) return
 
-    // Parse if string - raw data from Overwolf uses snake_case
     const rawPlayer: any = typeof data === 'string' ? JSON.parse(data) : data
+    if (!rawPlayer || typeof rawPlayer !== 'object') return
 
-    // Find existing player or add new
     const existingIndex = state.scoreboard.findIndex(
-        p => p.playerId === rawPlayer.player_id || p.name === rawPlayer.name
+        p => (rawPlayer.player_id && p.playerId === rawPlayer.player_id) ||
+             (rawPlayer.name && p.name === rawPlayer.name)
     )
+    const prev: ScoreboardPlayer | undefined = existingIndex >= 0 ? state.scoreboard[existingIndex] : undefined
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(rawPlayer, k) && rawPlayer[k] !== undefined && rawPlayer[k] !== null
 
-    const scoreboardPlayer: ScoreboardPlayer = {
-        name: rawPlayer.name || '',
-        character: getAgentName(rawPlayer.character || ''),
-        teammate: rawPlayer.teammate === true,
-        team: rawPlayer.team ?? 0,
-        alive: rawPlayer.alive !== false,
-        playerId: rawPlayer.player_id || '',
-        shield: rawPlayer.shield ?? 0,
-        weapon: getWeaponName(rawPlayer.weapon || ''),
-        spike: rawPlayer.spike === true,
-        ultPoints: rawPlayer.ult_points ?? 0,
-        ultMax: rawPlayer.ult_max ?? 8,
-        kills: rawPlayer.kills ?? 0,
-        deaths: rawPlayer.deaths ?? 0,
-        assists: rawPlayer.assists ?? 0,
-        money: rawPlayer.money ?? 0,
-        isLocal: rawPlayer.is_local === true,
+    const merged: ScoreboardPlayer = {
+        name: has('name') ? String(rawPlayer.name) : (prev?.name ?? ''),
+        character: has('character') ? getAgentName(String(rawPlayer.character)) : (prev?.character ?? ''),
+        teammate: has('teammate') ? rawPlayer.teammate === true : (prev?.teammate ?? false),
+        team: has('team') ? Number(rawPlayer.team) : (prev?.team ?? 0),
+        alive: has('alive') ? rawPlayer.alive !== false : (prev?.alive ?? true),
+        playerId: has('player_id') ? String(rawPlayer.player_id) : (prev?.playerId ?? ''),
+        shield: has('shield') ? Number(rawPlayer.shield) : (prev?.shield ?? 0),
+        weapon: has('weapon') ? getWeaponName(String(rawPlayer.weapon)) : (prev?.weapon ?? ''),
+        spike: has('spike') ? rawPlayer.spike === true : (prev?.spike ?? false),
+        ultPoints: has('ult_points') ? Number(rawPlayer.ult_points) : (prev?.ultPoints ?? 0),
+        ultMax: has('ult_max') ? Number(rawPlayer.ult_max) : (prev?.ultMax ?? 8),
+        kills: has('kills') ? Number(rawPlayer.kills) : (prev?.kills ?? 0),
+        deaths: has('deaths') ? Number(rawPlayer.deaths) : (prev?.deaths ?? 0),
+        assists: has('assists') ? Number(rawPlayer.assists) : (prev?.assists ?? 0),
+        money: has('money') ? Number(rawPlayer.money) : (prev?.money ?? 0),
+        isLocal: has('is_local') ? rawPlayer.is_local === true : (prev?.isLocal ?? false),
     }
 
     if (existingIndex >= 0) {
-        state.scoreboard[existingIndex] = scoreboardPlayer
-    } else {
-        state.scoreboard.push(scoreboardPlayer)
+        state.scoreboard[existingIndex] = merged
+        lastScoreboardUpdateAt = Date.now()
+    } else if (merged.name || merged.playerId) {
+        state.scoreboard.push(merged)
+        lastScoreboardUpdateAt = Date.now()
+    }
+
+    // Continuous ult sampling: detect a drop in any enemy's ult points vs. the
+    // previous snapshot. Only sampling at round-end (the prior behaviour) missed
+    // any ult whose post-use points had already been overwritten by a later
+    // partial scoreboard update.
+    if (!merged.teammate && merged.character && merged.ultMax > 0) {
+        const agentKey = merged.character
+        const prevPoints = state.previousUltPoints.get(agentKey)
+        if (prevPoints !== undefined &&
+            prevPoints >= merged.ultMax &&
+            merged.ultPoints < prevPoints &&
+            !state.thisRoundUltsUsed.includes(agentKey)) {
+            state.thisRoundUltsUsed.push(agentKey)
+        }
+        state.previousUltPoints.set(agentKey, merged.ultPoints)
     }
 
     // Refresh alive status after scoreboard update
     refreshAliveStatusFromScoreboard()
+}
+
+/**
+ * Drop scoreboard entries for players who haven't been touched in a while.
+ * Valorant leaves ghost entries behind for disconnects which quietly skew
+ * economy averages and ult-alert counts. Caller decides when to prune
+ * (e.g. on round start).
+ */
+export function pruneDisconnectedPlayers(): number {
+    const before = state.scoreboard.length
+    // Heuristic: if we haven't seen a scoreboard update in > 30s, assume GEP
+    // is no longer pushing for that player. We don't get per-player timestamps,
+    // so we rely on a hard cap of 10 entries (5v5 max) and trim the oldest
+    // duplicates by playerId.
+    const seen = new Map<string, ScoreboardPlayer>()
+    for (const p of state.scoreboard) {
+        const k = p.playerId || p.name
+        if (k) seen.set(k, p)
+    }
+    state.scoreboard = Array.from(seen.values()).slice(0, 10)
+    return before - state.scoreboard.length
 }
 
 /**
@@ -322,6 +503,7 @@ export function processAgent(agent: string): void {
 export function onMatchStart(matchId?: string): void {
     state = createInitialState()
     state.matchId = matchId
+    lastScoreboardUpdateAt = 0
 }
 
 /**
@@ -329,6 +511,7 @@ export function onMatchStart(matchId?: string): void {
  */
 export function onMatchEnd(): void {
     state = createInitialState()
+    lastScoreboardUpdateAt = 0
 }
 
 // ============ HELPERS ============
@@ -424,12 +607,14 @@ export function buildContextSummary(): string {
         }
     }
 
-    // Team economy summary with affordable weapons per player
+    // Team economy summary with affordable weapons per player.
+    // Only emit when the scoreboard is fresh AND actually has credit values —
+    // otherwise we risk telling the AI "Team broke, full eco" when in reality
+    // GEP just hasn't pushed the new round's credits yet.
     const allies = state.scoreboard.filter(p => p.teammate)
     const enemies = state.scoreboard.filter(p => !p.teammate)
 
-    // Build team economy context with individual player data
-    if (allies.length > 0) {
+    if (allies.length > 0 && hasFreshEconomyData()) {
         const teamEconomy = allies.map(p => ({
             name: p.name,
             agent: p.character,
@@ -437,6 +622,8 @@ export function buildContextSummary(): string {
             isLocal: p.isLocal
         }))
         lines.push(getTeamEconomyContext(teamEconomy))
+    } else if (allies.length > 0) {
+        lines.push(`Team Economy: Unknown (scoreboard not yet populated for this round)`)
     }
 
     if (enemies.length > 0) {
@@ -489,4 +676,247 @@ export function getUltAlerts(): UltAlert[] {
     }
 
     return alerts
+}
+
+// ============ PREDICTION ENGINE INTEGRATION ============
+
+/**
+ * Process score update from GEP
+ */
+export function processScore(won: number, lost: number): void {
+    state.score = { won, lost }
+}
+
+/**
+ * Returns the ults observed this round (continuous-sampling accumulator).
+ * Previous one-shot sampling is preserved below as trackUltUsageNow() for
+ * callers that want a spot-check diff, but getRoundDataForPrediction reads
+ * the accumulator so it cannot miss ults between snapshots.
+ */
+export function getThisRoundUltsUsed(): string[] {
+    return [...state.thisRoundUltsUsed]
+}
+
+/**
+ * Spot-check diff of current ult points vs previous snapshot. Kept for
+ * backwards compatibility; continuous sampling in processScoreboard is the
+ * source of truth now.
+ */
+export function trackUltUsage(): string[] {
+    const ultsUsed: string[] = []
+    const enemies = state.scoreboard.filter(p => !p.teammate)
+
+    for (const enemy of enemies) {
+        const agent = getAgentName(enemy.character)
+        const prevPoints = state.previousUltPoints.get(agent)
+
+        if (prevPoints !== undefined && prevPoints >= enemy.ultMax && enemy.ultPoints < prevPoints) {
+            ultsUsed.push(agent)
+        }
+        state.previousUltPoints.set(agent, enemy.ultPoints)
+    }
+
+    return ultsUsed
+}
+
+/**
+ * Get the first enemy kill of the round
+ */
+export function getEnemyFirstKill(): string | null {
+    // Find first kill where enemy killed us (is_attacker_teammate = false)
+    const enemyKills = state.thisRoundKills.filter(k => !k.isAttackerTeammate)
+    if (enemyKills.length === 0) return null
+
+    // Sort by timestamp and return attacker of first kill
+    const sorted = [...enemyKills].sort((a, b) => a.timestamp - b.timestamp)
+    return sorted[0].attacker
+}
+
+/**
+ * Determine if the round was aggressive based on timing
+ * Aggressive = first major event (kill or plant) within 25 seconds of round start
+ */
+export function wasAggressiveRound(): boolean {
+    if (state.roundStartTime === 0) return false
+
+    const AGGRESSIVE_THRESHOLD_MS = 25000  // 25 seconds
+
+    // Check first kill timing
+    const firstKill = state.thisRoundKills[0]
+    if (firstKill && (firstKill.timestamp - state.roundStartTime) < AGGRESSIVE_THRESHOLD_MS) {
+        return true
+    }
+
+    // Check plant timing (if attacking)
+    if (state.thisRoundSpike?.type === 'planted') {
+        const plantTime = state.thisRoundSpike.timestamp - state.roundStartTime
+        if (plantTime < AGGRESSIVE_THRESHOLD_MS) {
+            return true
+        }
+    }
+
+    return false
+}
+
+/**
+ * Infer round outcome from score change
+ * Call this AFTER score has been updated for the new round
+ * @param prevWon - Previous won count before this round
+ */
+export function inferRoundOutcome(prevWon: number): 'win' | 'loss' | 'unknown' {
+    if (state.score.won > prevWon) {
+        return 'win'
+    } else if (state.score.lost > prevWon) {
+        // This shouldn't happen but indicates a loss
+        return 'loss'
+    }
+    // Score unchanged or decreased means loss (enemy scored)
+    const totalBefore = prevWon
+    const totalNow = state.score.won
+    if (totalNow > totalBefore) {
+        return 'win'
+    }
+    return 'loss'
+}
+
+/**
+ * Get complete round data ready for prediction engine
+ * Call at end of each round
+ */
+export function getRoundDataForPrediction(): {
+    round: number
+    site: 'A' | 'B' | 'C' | null
+    enemyFirstKill: string | null
+    aggressivePlay: boolean
+    ultsUsed: string[]
+    outcome: 'win' | 'loss' | 'unknown'
+} {
+    return {
+        round: state.currentRound,
+        site: (state.thisRoundSpike?.location as 'A' | 'B' | 'C') || null,
+        enemyFirstKill: getEnemyFirstKill(),
+        aggressivePlay: wasAggressiveRound(),
+        ultsUsed: getThisRoundUltsUsed(),
+        outcome: 'unknown'  // Will be set by caller with inferRoundOutcome
+    }
+}
+
+/**
+ * Current enemy agents from the live scoreboard. Used by predictionEngine
+ * to grow the enemy roster over time rather than relying on an incomplete
+ * snapshot taken at initMatch (before GEP has pushed all 5 players).
+ */
+export function getEnemyAgents(): string[] {
+    return state.scoreboard
+        .filter(p => !p.teammate && p.character)
+        .map(p => p.character)
+}
+
+/**
+ * Set round start time - call when combat phase begins
+ */
+export function setRoundStartTime(): void {
+    state.roundStartTime = Date.now()
+}
+
+// ============ RESPONSE TIMING / OBJECTIVE COACHING ============
+
+export type PhaseGate = {
+    safeToSpeak: boolean
+    reason: 'shopping' | 'end' | 'dead' | 'combat' | 'unknown'
+    objective: 'economy' | 'execute' | 'retake' | 'postplant' | 'rotate' | 'reflect' | 'general'
+}
+
+/**
+ * Decide whether it is safe to deliver coaching right now, and what the
+ * current tactical objective is. Used to gate proactive prompts so the
+ * AI never talks over active combat.
+ */
+export function getPhaseGate(): PhaseGate {
+    const phase = state.roundPhase
+    const meDead = state.myHealth <= 0 && state.scoreboard.length > 0
+    const planted = state.thisRoundSpike?.type === 'planted'
+    const side = state.team
+
+    if (phase === 'shopping') {
+        return { safeToSpeak: true, reason: 'shopping', objective: 'economy' }
+    }
+    if (phase === 'end') {
+        return { safeToSpeak: true, reason: 'end', objective: 'reflect' }
+    }
+    if (meDead) {
+        const obj: PhaseGate['objective'] = planted
+            ? (side === 'attack' ? 'postplant' : 'retake')
+            : 'rotate'
+        return { safeToSpeak: true, reason: 'dead', objective: obj }
+    }
+    if (phase === 'combat') {
+        if (planted) {
+            return {
+                safeToSpeak: false,
+                reason: 'combat',
+                objective: side === 'attack' ? 'postplant' : 'retake',
+            }
+        }
+        return { safeToSpeak: false, reason: 'combat', objective: 'execute' }
+    }
+    return { safeToSpeak: false, reason: 'unknown', objective: 'general' }
+}
+
+/**
+ * Build an objective-focused task directive based on the current phase,
+ * economy, spike state, and alive count. Paired with buildContextSummary()
+ * it gives the AI clear, winning-oriented coaching targets.
+ */
+export function buildObjectiveDirective(): string {
+    const gate = getPhaseGate()
+    const alliesAlive = state.aliveAllies.length
+    const enemiesAlive = state.aliveEnemies.length
+    const planted = state.thisRoundSpike?.type === 'planted'
+    const site = state.thisRoundSpike?.location
+    const round = state.currentRound
+    const isPistol = round === 1 || round === 13
+
+    switch (gate.objective) {
+        case 'economy': {
+            if (isPistol) {
+                return 'Task: Pistol round buy call. Recommend one concrete loadout (Ghost/Classic + abilities + shield choice) and a first-contact plan. No rifles.'
+            }
+            return 'Task: Buy-phase call. Give ONE concrete team buy decision (full buy / force / save) grounded in the team economy table above, call out who should drop if needed, and a 1-line opener.'
+        }
+        case 'retake': {
+            return `Task: Site retake. Spike is down${site ? ' at ' + site : ''}, ${alliesAlive}v${enemiesAlive}. Give one retake plan: utility order, entry angle, and kill priority. Under 2 sentences.`
+        }
+        case 'postplant': {
+            return `Task: Post-plant lurk${site ? ' on ' + site : ''}. ${alliesAlive}v${enemiesAlive}. Call one defuse-denial angle or util line that wins the timer.`
+        }
+        case 'execute': {
+            return `Task: Mid-round read. ${alliesAlive}v${enemiesAlive}. Suggest one rotation OR site commit based on info, not generic aim advice.`
+        }
+        case 'rotate': {
+            return 'Task: You are dead — coach your teammates through comms. One rotation or trade call.'
+        }
+        case 'reflect': {
+            return 'Task: Round just ended. One sharp takeaway to carry into the next round (positioning, utility, or economy). No fluff.'
+        }
+        default:
+            return 'Task: Give one immediately actionable tactical tip for the current situation.'
+    }
+}
+
+/**
+ * Returns a compact indicator string so the UI can show what the coach
+ * is currently focusing on (e.g., "Buy Phase", "Retake", "Post-plant").
+ */
+export function getObjectiveLabel(): string {
+    const gate = getPhaseGate()
+    switch (gate.objective) {
+        case 'economy': return 'Buy Phase'
+        case 'retake': return 'Retake'
+        case 'postplant': return 'Post-Plant'
+        case 'execute': return 'Mid-Round'
+        case 'rotate': return 'Spectating'
+        case 'reflect': return 'Round End'
+        default: return 'Standby'
+    }
 }

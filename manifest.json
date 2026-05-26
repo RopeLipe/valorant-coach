@@ -5,7 +5,8 @@
     "name": "OWNED",
     "version": "1.0.0",
     "minimum-overwolf-version": "0.257.0",
-    "author": "OWNED Team",
+    "author": "Caliph Graham",
+    "author_display": "OWNED Team", 
     "icon": "icon.png",
     "icon_gray": "icon_gray.png",
     "launcher_icon": "desktop-icon.ico",
@@ -23,9 +24,28 @@
   ],
   "data": {
     "start_window": "background",
+    "game_events": [
+      21640
+    ],
+    "launch_events": [
+      {
+        "event": "GameLaunch",
+        "event_data": {
+          "game_ids": [
+            21640
+          ]
+        },
+        "start_minimized": true
+      }
+    ],
+    "developer": {
+      "enable_auto_refresh": true,
+      "reload_delay": 1000,
+      "filter": "*.html,assets/*.js,assets/*.css,manifest.json"
+    },
     "windows": {
       "main": {
-        "file": "dist/overlay.html",
+        "file": "overlay.html",
         "transparent": true,
         "resizable": false,
         "show_in_taskbar": false,
@@ -40,7 +60,7 @@
         }
       },
       "admin": {
-        "file": "dist/admin.html",
+        "file": "admin.html",
         "transparent": false,
         "resizable": true,
         "size": {
@@ -49,18 +69,11 @@
         }
       },
       "background": {
-        "file": "dist/background.html",
-        "transparent": true,
-        "resizable": false,
-        "show_in_taskbar": false,
-        "is_background_page": true,
-        "size": {
-          "width": 1,
-          "height": 1
-        }
+        "file": "background.html",
+        "is_background_page": true
       },
       "desktop": {
-        "file": "dist/desktop.html",
+        "file": "desktop.html",
         "transparent": true,
         "resizable": true,
         "show_in_taskbar": true,
@@ -78,13 +91,19 @@
       "toggle_app": {
         "title": "Toggle Coach Overlay",
         "action-type": "custom",
-        "default": "Ctrl+Alt+V"
+        "default": "Ctrl+Alt+V",
+        "game_ids": [
+          21640
+        ]
       },
       "voice_command": {
         "title": "Voice Command",
         "action-type": "custom",
         "default": "Ctrl+Alt+C",
-        "hold": true
+        "hold": true,
+        "game_ids": [
+          21640
+        ]
       },
       "toggle_desktop": {
         "title": "Toggle Desktop App",
@@ -94,7 +113,10 @@
       "toggle_settings": {
         "title": "Toggle Settings",
         "action-type": "custom",
-        "default": "Ctrl+Alt+S"
+        "default": "Ctrl+Alt+S",
+        "game_ids": [
+          21640
+        ]
       }
     },
     "game_targeting": {

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { Mic, Sparkles, Bot, Brain } from "lucide-react"
+import { Mic, Sparkles, Bot, Brain, XCircle, AlertTriangle, ThumbsUp, ThumbsDown } from "lucide-react"
 import { ScrollArea } from "@ui/scroll-area"
 import { motion, AnimatePresence } from "framer-motion"
 import { AGENT_LIST, AgentAsset } from "../../src/utils/agentAssets"
@@ -27,6 +27,12 @@ type OverlayProps = {
   settingsTrigger?: number
   settingsHotkey?: string
   thinking?: boolean
+  isError?: boolean
+  hasGameContext?: boolean
+  audioLevels?: number[]
+  alerts?: { agent: string; status: 'ready' | 'almost'; orbsAway: number }[]
+  showRoundEndPrompt?: boolean
+  onRate?: (rating: 'up' | 'down', aiText: string) => void
 }
 
 // Helper to parse text and replace keywords with rich UI
@@ -122,11 +128,15 @@ function parseRichText(text: string) {
   return <>{parts}</>
 }
 
-export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'both', aiText = '', gameData, settingsTrigger = 0, settingsHotkey, thinking = false }: OverlayProps) {
+export function InGameOverlay(props: OverlayProps) {
+  const { listening = false, onToggle, hotkey, mode = 'both', aiText = '', gameData, settingsTrigger = 0, settingsHotkey, thinking = false, isError = false, hasGameContext = true, audioLevels, alerts = [], showRoundEndPrompt = false, onRate } = props
   const [isListening, setIsListening] = useState(listening)
   const [currentTip, setCurrentTip] = useState(0)
   const [isFading, setIsFading] = useState(false)
   const [settingsNotice, setSettingsNotice] = useState(false)
+  const [lastRating, setLastRating] = useState<'up' | 'down' | null>(null)
+  // Reset the rating state whenever a new answer arrives
+  useEffect(() => { setLastRating(null) }, [aiText])
 
   useEffect(() => { setIsListening(listening) }, [listening])
 
@@ -150,9 +160,15 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
   }, [settingsTrigger])
 
   const hasAnswer = useMemo(() => mode !== 'speech' && !!aiText?.trim(), [aiText, mode])
-  const showCard = hasAnswer || isListening || settingsNotice || thinking
+  const showCard = hasAnswer || isListening || settingsNotice || thinking || showRoundEndPrompt
 
   const { title, subtitle } = useMemo(() => {
+    if (showRoundEndPrompt) {
+      return {
+        title: 'Round Ended',
+        subtitle: 'Tell me what happened to improve my predictions.'
+      }
+    }
     if (hasAnswer) {
       return {
         title: 'Valorant Coach',
@@ -181,10 +197,38 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
       title: 'Voice Command',
       subtitle: `Press ${hotkey || 'Ctrl+Alt+C'} to speak.`
     }
-  }, [hasAnswer, hotkey, isListening, settingsHotkey, thinking])
+  }, [hasAnswer, hotkey, isListening, settingsHotkey, thinking, showRoundEndPrompt])
 
   const renderBody = () => {
+    if (showRoundEndPrompt) {
+      return (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex flex-col items-center justify-center py-2 space-y-3"
+        >
+          <div className="relative">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center bg-white/10 border border-white/20 ${listening ? 'animate-pulse bg-red-500/20 border-red-500/50' : ''}`}>
+              <Mic className={`w-6 h-6 ${listening ? 'text-red-400' : 'text-white/80'}`} />
+            </div>
+            {listening && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping" />
+            )}
+          </div>
+          <div className="text-center space-y-1">
+            <p className="text-sm font-medium text-white">"They rushed A site..."</p>
+            <p className="text-[10px] text-white/50 uppercase tracking-wide">Hold {hotkey || 'Ctrl+Alt+C'} to record note</p>
+          </div>
+        </motion.div>
+      )
+    }
+
     if (hasAnswer) {
+      const rate = (r: 'up' | 'down') => {
+        if (lastRating) return
+        setLastRating(r)
+        try { onRate?.(r, aiText) } catch { }
+      }
       return (
         <motion.div
           layout="position"
@@ -194,12 +238,35 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
           className="space-y-3"
         >
-          <div className="bg-black/60 border border-white/10 rounded-2xl p-4 max-h-60 shadow-lg backdrop-blur-md">
+          <div className={`border rounded-2xl p-4 max-h-60 shadow-lg backdrop-blur-md ${isError ? 'bg-black/40 border-red-500/20' : 'bg-black/60 border-white/10'}`}>
             <ScrollArea className="max-h-48 pr-2">
               <div className="text-base text-white font-medium whitespace-pre-wrap leading-relaxed tracking-wide drop-shadow-sm">
                 {parseRichText(aiText)}
               </div>
             </ScrollArea>
+            {!isError && (
+              <div className="flex items-center justify-end gap-1 mt-2 pt-2 border-t border-white/5">
+                <span className="text-[9px] text-white/30 uppercase tracking-wider mr-1">
+                  {lastRating ? 'Thanks' : 'Helpful?'}
+                </span>
+                <button
+                  aria-label="Mark helpful"
+                  disabled={!!lastRating}
+                  onClick={() => rate('up')}
+                  className={`p-1.5 rounded-md transition-colors ${lastRating === 'up' ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-white/5 text-white/50 hover:text-white'}`}
+                >
+                  <ThumbsUp className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  aria-label="Mark unhelpful"
+                  disabled={!!lastRating}
+                  onClick={() => rate('down')}
+                  className={`p-1.5 rounded-md transition-colors ${lastRating === 'down' ? 'bg-red-500/20 text-red-400' : 'hover:bg-white/5 text-white/50 hover:text-white'}`}
+                >
+                  <ThumbsDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         </motion.div>
       )
@@ -216,14 +283,20 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
           className="space-y-2"
         >
           <div className="flex items-center justify-center gap-1 h-10">
-            {Array.from({ length: 16 }).map((_, i) => (
-              <div
+            {/* Use real audio levels if available, otherwise fallback to static bars */}
+            {(props.audioLevels && props.audioLevels.length > 0 ? props.audioLevels : new Array(16).fill(0.1)).map((level: number, i: number) => (
+              <motion.div
                 key={i}
-                className="w-0.5 bg-white rounded-full animate-pulse transition-all"
-                style={{
-                  height: `${LISTENING_BARS[i % LISTENING_BARS.length]}px`,
-                  animationDelay: `${(i % LISTENING_BARS.length) * 70}ms`,
-                  animationDuration: "0.7s",
+                className="w-0.5 bg-white rounded-full transition-all shadow-[0_0_8px_rgba(255,255,255,0.5)]"
+                animate={{
+                  height: Math.max(4, level * 24), // Scale 0-1 to 4px-28px
+                  opacity: Math.max(0.3, level + 0.2)
+                }}
+                transition={{
+                  type: "spring",
+                  stiffness: 300,
+                  damping: 20,
+                  mass: 0.5
                 }}
               />
             ))}
@@ -280,7 +353,7 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
 
   return (
     <div className="relative pointer-events-none">
-      <div className="absolute top-4 right-4 pointer-events-auto">
+      <div className="absolute top-4 right-4 pointer-events-auto flex flex-col items-end gap-2">
         <AnimatePresence mode="wait">
           <motion.div
             layout
@@ -296,7 +369,9 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
               damping: 30,
               mass: 0.8
             }}
-            className={`backdrop-blur-xl bg-black/80 border border-white/20 overflow-hidden ${showCard ? 'shadow-[0_12px_40px_rgba(0,0,0,0.45)]' : 'hover:border-white/50'
+            className={`backdrop-blur-xl overflow-hidden ${isError
+              ? 'bg-black/90 border border-red-500/30 shadow-[0_0_40px_rgba(220,38,38,0.15)]'
+              : `bg-black/80 border border-white/20 ${showCard ? 'shadow-[0_12px_40px_rgba(0,0,0,0.45)]' : 'hover:border-white/50'}`
               } ${isListening ? 'border-2 border-white shadow-[0_0_30px_rgba(255,255,255,0.3)]' : ''}`}
           >
             <div className={`px-5 py-4 ${showCard ? 'space-y-4' : ''}`}>
@@ -328,24 +403,73 @@ export function InGameOverlay({ listening = false, onToggle, hotkey, mode = 'bot
                   className="space-y-4"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center backdrop-blur-md border border-white/10 shadow-inner">
-                      <Bot className="w-5 h-5 text-white" />
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center backdrop-blur-md border shadow-inner ${isError ? 'bg-red-500/10 border-red-500/20' : 'bg-white/10 border-white/10'}`}>
+                      {isError ? <XCircle className="w-5 h-5 text-red-500" /> : <Bot className="w-5 h-5 text-white" />}
                     </div>
                     <div>
-                      <h1 className="text-sm font-bold text-white leading-none tracking-wide">OWNED AI</h1>
+                      <h1 className={`text-sm font-bold leading-none tracking-wide ${isError ? 'text-red-500' : 'text-white'}`}>
+                        {isError ? 'SYSTEM ALERT' : (showRoundEndPrompt ? 'ROUND ANALYSIS' : 'OWNED AI')}
+                      </h1>
                       <div className="flex items-center gap-1.5 mt-1">
-                        <span className={`w-1.5 h-1.5 rounded-full ${listening ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+                        <span className={`w-1.5 h-1.5 rounded-full ${listening ? 'bg-red-500 animate-pulse' : (isError ? 'bg-red-500' : 'bg-green-500')}`} />
                         <span className="text-[10px] font-medium text-white/50 uppercase tracking-wider">
-                          {listening ? 'Listening' : 'Ready'}
+                          {listening ? 'Listening' : (isError ? 'Error' : 'Ready')}
                         </span>
+                        {!hasGameContext && (
+                          <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 text-[9px] font-bold uppercase tracking-wider border border-amber-500/30">
+                            No Game Context
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
                   {renderBody()}
+                  <div className="pt-2 border-t border-white/5">
+                    <p className="text-[8px] text-white/20 leading-tight font-sans text-center">
+                      Owned isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+                    </p>
+                  </div>
                 </motion.div>
               )}
             </div>
           </motion.div>
+        </AnimatePresence>
+
+        {/* Alerts Section */}
+        <AnimatePresence>
+          {alerts.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="flex flex-col gap-2 w-[420px]"
+            >
+              {alerts.map((alert, idx) => (
+                <motion.div
+                  key={`${alert.agent}-${idx}`}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl backdrop-blur-md border shadow-lg ${alert.status === 'ready'
+                      ? 'bg-red-500/20 border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
+                      : 'bg-amber-500/10 border-amber-500/30'
+                    }`}
+                >
+                  <div className={`p-1.5 rounded-lg ${alert.status === 'ready' ? 'bg-red-500/20' : 'bg-amber-500/20'}`}>
+                    <AlertTriangle className={`w-4 h-4 ${alert.status === 'ready' ? 'text-red-400' : 'text-amber-400'}`} />
+                  </div>
+                  <div className="flex-1">
+                    <div className={`text-xs font-bold uppercase tracking-wider ${alert.status === 'ready' ? 'text-red-100' : 'text-amber-100'}`}>
+                      {alert.agent} Ult {alert.status === 'ready' ? 'Ready' : 'Soon'}
+                    </div>
+                    <div className="text-[10px] text-white/60">
+                      {alert.status === 'ready' ? 'Watch for usage' : `${alert.orbsAway} orb${alert.orbsAway > 1 ? 's' : ''} away`}
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
     </div>

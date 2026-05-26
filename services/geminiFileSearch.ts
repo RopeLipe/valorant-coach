@@ -7,6 +7,8 @@
  */
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { RagStore, Document, QueryResult } from '../types';
+import { AGENT_ASSETS } from '../src/utils/agentAssets';
+import { formatCalloutsForPrompt } from '../src/utils/mapCallouts';
 
 let ai: GoogleGenAI;
 
@@ -257,14 +259,19 @@ export async function uploadToRagStore(
                 config.displayName = options.displayName;
             }
 
-            if (options.chunkingConfig) {
-                config.chunkingConfig = {
-                    whiteSpaceConfig: {
-                        maxTokensPerChunk: options.chunkingConfig.maxTokensPerChunk || 200,
-                        maxOverlapTokens: options.chunkingConfig.maxOverlapTokens || 20
-                    }
-                };
-            }
+            // Default chunking config if not provided
+            // Optimized for tactical advice: smaller chunks (200 tokens) to isolate specific tips
+            const chunkingConfig = options?.chunkingConfig || {
+                maxTokensPerChunk: 200,
+                maxOverlapTokens: 20
+            };
+
+            config.chunkingConfig = {
+                whiteSpaceConfig: {
+                    maxTokensPerChunk: chunkingConfig.maxTokensPerChunk,
+                    maxOverlapTokens: chunkingConfig.maxOverlapTokens
+                }
+            };
 
             if (options.customMetadata && options.customMetadata.length > 0) {
                 config.customMetadata = options.customMetadata;
@@ -340,6 +347,143 @@ export interface FileSearchOptions {
     metadataFilter?: string;
     systemInstruction?: string;
     model?: string;
+    // #8 caching + #11/#12 agent/map context
+    context?: {
+        agent?: string       // "Jett", "Cypher" — used for role-aware system prompt
+        map?: string         // "Haven" — used to inject real callouts
+        objective?: string   // "economy" | "retake" | ...
+        economyBucket?: string // "eco" | "force" | "full" | "bonus"
+        cacheKey?: string    // opt-in cache key; if omitted cache is skipped
+        rejectPatterns?: string[] // #10 advice patterns the user has rejected
+    };
+    skipCache?: boolean;
+}
+
+// ========== PROMPT CACHE (#8) ==========
+// Small LRU-ish map. Buy-phase / objective-driven prompts are highly repetitive
+// across rounds (same map, same agent, same economy bucket) — cache hits turn
+// a 2–3s Gemini round-trip into near-zero latency and free credits.
+const PROMPT_CACHE_MAX = 64
+const PROMPT_CACHE_TTL_MS = 15 * 60 * 1000 // 15 min — stale enough for a match
+const promptCache = new Map<string, { at: number; result: QueryResult }>()
+
+function cacheGet(key: string): QueryResult | null {
+    const hit = promptCache.get(key)
+    if (!hit) return null
+    if (Date.now() - hit.at > PROMPT_CACHE_TTL_MS) {
+        promptCache.delete(key)
+        return null
+    }
+    // Refresh LRU order
+    promptCache.delete(key)
+    promptCache.set(key, hit)
+    return hit.result
+}
+
+function cacheSet(key: string, result: QueryResult): void {
+    if (!result?.text) return
+    promptCache.set(key, { at: Date.now(), result })
+    while (promptCache.size > PROMPT_CACHE_MAX) {
+        const oldest = promptCache.keys().next().value
+        if (oldest) promptCache.delete(oldest); else break
+    }
+}
+
+export function clearPromptCache(): void { promptCache.clear() }
+
+// #9 Safe fallback — if Gemini returns empty text twice in a row, we still
+// want to surface SOMETHING useful, grounded in the objective we know about.
+const OBJECTIVE_FALLBACKS: Record<string, string> = {
+    economy: 'Match your team buy — nobody wins 2v5. Talk comms and sync full/force/save.',
+    retake: 'Stall with util first, trade entries, never dry peek. Check defuse timing.',
+    postplant: 'Hold multiple angles with ally; line up molly/util on default plant spot.',
+    execute: 'Take info before committing. Ult economy matters more than first pick.',
+    rotate: 'Call info for your team — enemy count, utility used, economy.',
+    reflect: 'Note why the round went the way it did; adjust next buy and utility order.',
+    general: 'Play the map, use callouts, and trust your crosshair placement.',
+}
+
+function getSafeFallback(options?: FileSearchOptions): string {
+    const obj = options?.context?.objective || 'general'
+    return OBJECTIVE_FALLBACKS[obj] || OBJECTIVE_FALLBACKS.general
+}
+
+// Build a dynamic system instruction that injects agent role + abilities (#11)
+// and real map callouts (#12) when the context is known.
+function buildSystemInstruction(opts?: FileSearchOptions): string {
+    // System instruction is written as a prioritized list. The previous version
+    // contradicted itself ("talk like a gamer" + "1-2 sentence hard limit" +
+    // "no generic advice") which pushed the model toward either verbose
+    // filler or truncated nonsense. Rules are now ordered so the model sees
+    // hard constraints first and style guidance last.
+    const base = `You are a live Valorant coach. Follow these rules in order:
+
+1. LENGTH: 1–2 sentences maximum. Under 30 words.
+2. NO INVENTED CONTEXT: Only reference enemies, agents, maps, sites, or economy that appear explicitly in the prompt. If none are provided, give advice that works without that context — do NOT fabricate a matchup or round state.
+3. CASUAL INPUT: If the user says "hello", "can you hear me", etc., reply in one short conversational sentence. Don't force tactics.
+4. FILES ARE TRUTH: Retrieved files are current Valorant data. Treat every agent and ability mentioned there as real, even if the name is unfamiliar. Never tell the user they got a name wrong.
+5. STYLE: Direct, confident, gamer tone. No preamble ("Great question", "Based on the data"). No labels. No mentions of AI, files, retrieval, or tokens.
+6. ACTIONABLE: Give one concrete thing to do, not generic advice like "use comms" or "aim well".`
+
+    const ctx = opts?.context
+    if (!ctx) return base
+
+    const extras: string[] = []
+
+    if (ctx.agent) {
+        const asset = AGENT_ASSETS[ctx.agent]
+        if (asset) {
+            const abilityNames = (asset.abilities || [])
+                .filter(a => a.displayName && a.displayName !== 'Info')
+                .map(a => a.displayName)
+                .join(', ')
+            extras.push(`Player agent: ${asset.displayName} (${asset.role}). Abilities: ${abilityNames}. Refer to them by real names.`)
+        }
+    }
+    const callouts = formatCalloutsForPrompt(ctx.map)
+    if (callouts) extras.push(`Use real ${ctx.map} callouts, not generic "A site": ${callouts}`)
+
+    if (ctx.rejectPatterns && ctx.rejectPatterns.length > 0) {
+        extras.push(`Avoid these rejected patterns from prior rounds: ${ctx.rejectPatterns.slice(0, 5).join(' | ')}.`)
+    }
+
+    return `${base}\n\n${extras.join('\n')}`
+}
+
+/**
+ * Enrich user query with retrieval-friendly keywords to improve RAG file matching.
+ * Detects agent/map names and appends terms that match file naming conventions.
+ */
+function enrichQuery(query: string): string {
+    const lower = query.toLowerCase();
+    const enrichments: string[] = [];
+
+    // Detect agent names (including newer agents the model may not know)
+    const agents = [
+        'astra', 'breach', 'brimstone', 'chamber', 'clove', 'cypher', 'deadlock', 'fade',
+        'gekko', 'harbor', 'iso', 'jett', 'kay/o', 'kayo', 'killjoy', 'neon', 'omen',
+        'phoenix', 'raze', 'reyna', 'sage', 'skye', 'sova', 'tejo', 'veto', 'viper',
+        'vyse', 'waylay', 'yoru'
+    ];
+    for (const agent of agents) {
+        if (lower.includes(agent)) {
+            const name = agent === 'kayo' ? 'KAY/O' : agent.charAt(0).toUpperCase() + agent.slice(1);
+            enrichments.push(`howtoplay ${name} guide tips abilities`);
+            break;
+        }
+    }
+
+    // Detect map names
+    const maps = ['abyss', 'ascent', 'bind', 'breeze', 'corrode', 'fracture', 'haven', 'icebox', 'lotus', 'pearl', 'split', 'sunset'];
+    for (const map of maps) {
+        if (lower.includes(map)) {
+            enrichments.push(`${map} strategy callouts`);
+            break;
+        }
+    }
+
+    if (enrichments.length === 0) return query;
+    return `${query}\n\n[Search context: ${enrichments.join(', ')}]`;
 }
 
 /**
@@ -360,6 +504,13 @@ export async function fileSearch(
         throw new Error("Invalid query: must be a non-empty string");
     }
 
+    // #8 prompt cache lookup (caller opts in by passing context.cacheKey)
+    const cacheKey = options?.context?.cacheKey
+    if (!options?.skipCache && cacheKey) {
+        const hit = cacheGet(cacheKey)
+        if (hit) return hit
+    }
+
     try {
         // Normalize store name - handle both "store-id" and "fileSearchStores/store-id" formats
         const normalizedStoreName = ragStoreName.startsWith('fileSearchStores/')
@@ -375,29 +526,50 @@ export async function fileSearch(
             fileSearchConfig.metadataFilter = options.metadataFilter;
         }
 
-        const response: GenerateContentResponse = await ai.models.generateContent({
-            model: options?.model || 'gemini-flash-latest',
-            contents: query,
-            config: {
-                systemInstruction: options?.systemInstruction ||
-                    "You are a professional Valorant coach. You have access to a knowledge base that contains information about NEW and CUSTOM agents (specifically Veto, Tejo, Waylay, Clove, Vyse) that are NOT in your general training data. CRITICAL: If the user asks about 'Veto' or any other custom agent, you MUST use the provided context. Do NOT say the agent does not exist. ALWAYS prioritize the information found in the provided context over your internal knowledge. If the context describes an agent, assume they exist and give advice based on that context. \n\nCONTEXT AWARENESS: You will be provided with lists of 'Allies' and 'Enemies'. Use this information to provide smarter, context-aware advice. For example, if the enemy has a Cypher, warn about trips. If the player's team lacks smokes, suggest cautious pathing. Analyze the team compositions for tactical advantages and disadvantages.\n\nYour answers must be extremely brief, concise, and actionable. Limit your response to a maximum of 2 short sentences. Focus on immediate tactical advice.",
-                tools: [
-                    {
-                        fileSearch: fileSearchConfig
-                    }
-                ]
-            }
-        });
+        // Enrich query for better retrieval - append keywords that match RAG file naming
+        const enrichedQuery = enrichQuery(query);
+        const systemInstruction = options?.systemInstruction || buildSystemInstruction(options);
+        const model = options?.model || 'gemini-3.1-flash-lite-preview';
+
+        // Helper to invoke the model with a given token/thinking budget so we
+        // can retry with more headroom if the first attempt returns empty.
+        const invoke = async (maxOutputTokens: number, thinkingLevel: 'low' | 'none') => {
+            return await ai.models.generateContent({
+                model,
+                contents: `Ground your answer on the retrieved file content. Treat everything in the files as real and current.\n\n${enrichedQuery}`,
+                config: {
+                    maxOutputTokens,
+                    // @ts-ignore - thinkingConfig is valid for Gemini 3 but might not be in types yet
+                    thinkingConfig: { thinkingLevel },
+                    systemInstruction,
+                    tools: [{ fileSearch: fileSearchConfig }]
+                }
+            }) as GenerateContentResponse;
+        };
+
+        let response = await invoke(1024, 'low');
+        let text = (response.text || '').trim();
+        // #9 empty-text fallback: thinking tokens can eat the whole budget. Retry
+        // with a bigger budget and no thinking so the user still gets an answer.
+        if (!text) {
+            try {
+                response = await invoke(2048, 'none');
+                text = (response.text || '').trim();
+            } catch { }
+        }
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
         const groundingSupport = (response.candidates?.[0]?.groundingMetadata as any)?.groundingSupports || [];
 
-        return {
-            text: response.text,
+        const result: QueryResult = {
+            text: text || getSafeFallback(options),
             groundingChunks: groundingChunks,
             groundingSupport: groundingSupport,
             fullMetadata: response.candidates?.[0]?.groundingMetadata
         };
+
+        if (!options?.skipCache && cacheKey && result.text) cacheSet(cacheKey, result);
+        return result;
     } catch (err) {
         const fullErrorMessage = extractErrorMessage(err);
         const errorMessage = fullErrorMessage.toLowerCase();
@@ -405,7 +577,7 @@ export async function fileSearch(
         console.error("File search error:", err);
 
         if (errorMessage.includes('not found') || errorMessage.includes('does not exist')) {
-            throw new Error(`The RAG store "${ragStoreName}" was not found. Please create it in the admin page first.`);
+            throw new Error(`The RAG store "${ragStoreName}" was not found.Please create it in the admin page first.`);
         } else if (errorMessage.includes('permission') || errorMessage.includes('invalid_argument')) {
             throw new Error(`Permission denied or the store doesn't exist. Please verify the store exists.`);
         } else if (errorMessage.includes('api key not valid')) {
@@ -431,7 +603,7 @@ export async function generateExampleQuestions(ragStoreName: string): Promise<st
             : `fileSearchStores/${ragStoreName}`;
 
         const response = await ai.models.generateContent({
-            model: 'gemini-flash-latest',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: "You are a professional Valorant coach. Based on the provided gameplay data (VOD reviews, match history, guides, etc.), generate 4 short and practical example questions a player might ask to improve. Return the questions as a JSON array of strings.",
             config: {
                 tools: [
@@ -543,9 +715,9 @@ export function extractMetadataFromFilename(filename: string): CustomMetadata[] 
 
     // Extract agent name if present
     const agents = [
-        'astra', 'breach', 'brimstone', 'chamber', 'clove', 'cypher', 'deadlock', 'fade', 
-        'gekko', 'harbor', 'iso', 'jett', 'kay/o', 'kayo', 'killjoy', 'neon', 'omen', 
-        'phoenix', 'raze', 'reyna', 'sage', 'skye', 'sova', 'tejo', 'veto', 'viper', 
+        'astra', 'breach', 'brimstone', 'chamber', 'clove', 'cypher', 'deadlock', 'fade',
+        'gekko', 'harbor', 'iso', 'jett', 'kay/o', 'kayo', 'killjoy', 'neon', 'omen',
+        'phoenix', 'raze', 'reyna', 'sage', 'skye', 'sova', 'tejo', 'veto', 'viper',
         'vyse', 'waylay', 'yoru'
     ];
     for (const agent of agents) {
@@ -591,7 +763,7 @@ export async function analyzeMatchHistory(matches: any[]): Promise<string> {
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-flash-latest',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: prompt,
         });
         return response.text;

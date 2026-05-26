@@ -4,6 +4,21 @@
  */
 
 import { getAgentName } from '../src/utils/agentMapping'
+import {
+    runAdvancedAnalysis,
+    type AdvancedPatternAnalysis,
+    type AgentPattern,
+    type EconomyPrediction,
+    type TimingPattern
+} from './advancedPatternDetection'
+
+// Re-export advanced types for consumers
+export type {
+    AdvancedPatternAnalysis,
+    AgentPattern,
+    EconomyPrediction,
+    TimingPattern
+}
 
 // ============ TYPES ============
 
@@ -57,6 +72,9 @@ export function initMatch(matchId: string, map: string, enemyTeam: string[]): vo
     const existing = loadMatch(matchId)
     if (existing) {
         currentMatch = existing
+        // Opportunistically merge any newly-observed enemies into the roster
+        // so resumed matches still benefit from later scoreboard arrivals.
+        refreshEnemyTeam(enemyTeam)
         console.log('[PredictionEngine] Resumed match:', matchId)
         return
     }
@@ -66,12 +84,38 @@ export function initMatch(matchId: string, map: string, enemyTeam: string[]): vo
         map,
         startTime: Date.now(),
         rounds: [],
-        enemyTeam: enemyTeam.map(id => getAgentName(id))
+        enemyTeam: enemyTeam.map(id => getAgentName(id)).filter(Boolean)
     }
 
     saveCurrentMatch()
     localStorage.setItem(CURRENT_MATCH_KEY, matchId)
     console.log('[PredictionEngine] Initialized match:', matchId, 'on', map)
+}
+
+/**
+ * Grow-only enemy roster update. The scoreboard frequently arrives partial
+ * (GEP batches 1–3 players at a time) so the initial snapshot may be missing
+ * agents. Call this whenever fresh scoreboard data arrives — we only add
+ * new distinct agents, never drop (so an agent who briefly vanishes from a
+ * partial update is not erased).
+ */
+export function refreshEnemyTeam(agents: string[]): void {
+    if (!currentMatch) return
+    const mapped = agents.map(a => getAgentName(a)).filter(Boolean)
+    let changed = false
+    for (const a of mapped) {
+        if (!currentMatch.enemyTeam.includes(a)) {
+            currentMatch.enemyTeam.push(a)
+            changed = true
+        }
+    }
+    if (changed) {
+        // Cap at 5 to stop mid-match agent swaps from ballooning the list.
+        if (currentMatch.enemyTeam.length > 5) {
+            currentMatch.enemyTeam = currentMatch.enemyTeam.slice(0, 5)
+        }
+        saveCurrentMatch()
+    }
 }
 
 /**
@@ -150,11 +194,14 @@ export function analyzePatterns(): PatternAnalysis {
     const firstKillers: Record<string, number> = {}
 
     for (const r of rounds) {
-        // Site preference
-        if (r.site) siteCount[r.site]++
-        if (r.plantedSite && ['A', 'B', 'C'].includes(r.plantedSite)) {
-            siteCount[r.plantedSite as 'A' | 'B' | 'C']++
-        }
+        // Site preference — dedup the two equivalent fields. Callers set both
+        // `site` and `plantedSite` to the same value for plant-confirmed rounds,
+        // so counting both double-weighted every plant. Prefer `site` when
+        // present, fall back to `plantedSite` only when `site` is null.
+        const siteSource = r.site || (r.plantedSite && ['A', 'B', 'C'].includes(r.plantedSite)
+            ? (r.plantedSite as 'A' | 'B' | 'C')
+            : null)
+        if (siteSource) siteCount[siteSource]++
 
         // Aggression
         if (r.aggressivePlay) aggressiveCount++
@@ -214,15 +261,35 @@ export function analyzePatterns(): PatternAnalysis {
  * Get pattern summary for AI context
  */
 export function getPatternSummary(): string {
-    const analysis = analyzePatterns()
+    const advanced = getAdvancedAnalysis()
     if (!currentMatch || currentMatch.rounds.length < 2) {
         return ''
     }
 
     const lines = [
         `[Enemy Pattern Analysis - ${currentMatch.rounds.length} rounds played]`,
-        analysis.summary
+        advanced.summary
     ]
+
+    // Economy prediction
+    if (advanced.economyPrediction.confidence > 0.4) {
+        lines.push(`Economy: ${advanced.economyPrediction.likelyBuyType.toUpperCase()} (${Math.round(advanced.economyPrediction.confidence * 100)}% conf)`)
+        if (advanced.economyPrediction.opWarning) {
+            lines.push('⚠️ OP LIKELY')
+        }
+    }
+
+    // Timing tendency
+    if (advanced.timingPattern.tendency !== 'mixed') {
+        lines.push(`Timing: ${advanced.timingPattern.tendency} executes (~${advanced.timingPattern.avgExecuteTimeSeconds}s avg)`)
+    }
+
+    // Tactical prediction — only surface when we have genuine confidence.
+    // confidenceScore ≥ 0.5 corresponds to ≥4 rounds with known outcomes
+    // under the new gating in runAdvancedAnalysis.
+    if (advanced.predictedNextPlay && advanced.confidenceScore >= 0.5) {
+        lines.push(`Prediction: ${advanced.predictedNextPlay}`)
+    }
 
     // Add user notes if any
     const recentNotes = currentMatch.rounds
@@ -231,10 +298,17 @@ export function getPatternSummary(): string {
         .map(r => `R${r.round}: ${r.userNote}`)
 
     if (recentNotes.length > 0) {
-        lines.push('Recent observations: ' + recentNotes.join('; '))
+        lines.push('Notes: ' + recentNotes.join('; '))
     }
 
     return lines.join('\n')
+}
+
+/**
+ * Get full advanced pattern analysis
+ */
+export function getAdvancedAnalysis(): AdvancedPatternAnalysis {
+    return runAdvancedAnalysis(currentMatch)
 }
 
 /**

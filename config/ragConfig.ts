@@ -21,7 +21,7 @@ export function getDefaultStoreId(): string {
     }
 
     // Fallback to hardcoded default
-    return 'fileSearchStores/valorant-coach-knowledge-ba-322h6cg6g3x8';
+    return 'fileSearchStores/valorant-coach-knowledge-ba-bxtfsydndmc8';
 }
 
 /**

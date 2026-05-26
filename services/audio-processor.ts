@@ -115,7 +115,7 @@ export class AudioProcessor {
                 const base64data = reader.result as string;
                 const base64Content = base64data.split(',')[1];
 
-                const model = this.genAI.getGenerativeModel({ model: "gemini-flash-lite-latest" });
+                const model = this.genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
 
                 try {
                     const result = await this.retryWithBackoff(async () => {

@@ -1,4 +1,8 @@
 
+// WARNING: NEVER expose your Riot Games Production API key in client-side code in production.
+// Riot Games' Developer Policy strictly forbids exposing API keys in public client builds.
+// For production, you MUST query your backend proxy server that signs requests and passes the API key,
+// and implement Riot Sign-On (RSO) for player authentication and opt-in data sharing.
 const API_KEY = 'RGAPI-95a3c136-ee6a-4cf0-98e2-74d09925e7c1'; // TODO: Move to secure backend in production
 const REGION = 'americas'; // Default to americas for now
 const BASE_URL = `https://${REGION}.api.riotgames.com`;

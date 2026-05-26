@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import DiagnosticsChecklist from "./DiagnosticsChecklist"
 import type { DiagnosticResult } from "../services/diagnostics"
-import { X, Mic, Keyboard, Settings, Clock } from "lucide-react"
+import { X, Mic, Keyboard, Settings, Clock, Bot } from "lucide-react"
 
 interface MicrophoneDevice {
   deviceId: string
@@ -131,9 +131,21 @@ export default function DesktopSettingsPanel({
   const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown')
   const [messageDuration, setMessageDuration] = useState<number>(6000)
   const [isCheckingPermission, setIsCheckingPermission] = useState(false)
+  // Coach AI behaviour flags (see OverlayApp for consumers).
+  // autoKillTips is opt-IN: many users found per-kill prompts spammy, so the
+  // overlay only treats '1' as enabled. The other two flags remain opt-OUT.
+  const [autoKillTips, setAutoKillTips] = useState<boolean>(false)
+  const [autoBuyAdvice, setAutoBuyAdvice] = useState<boolean>(true)
+  const [suppressDuringCombat, setSuppressDuringCombat] = useState<boolean>(true)
+  const [budgetCap, setBudgetCap] = useState<number>(0)
+  const [budgetUsed, setBudgetUsed] = useState<number>(0)
 
   const preferredMicStorageKey = "coach_preferred_mic_id"
   const messageDurationKey = "coach_message_duration"
+  const autoKillKey = "coach_auto_kill_tips"
+  const autoBuyKey = "coach_auto_buy_advice"
+  const suppressCombatKey = "coach_suppress_during_combat"
+  const budgetCapKey = "coach_ai_budget_cap"
 
   useEffect(() => {
     try {
@@ -147,14 +159,37 @@ export default function DesktopSettingsPanel({
           setMessageDuration(val)
         }
       }
+
+      setAutoKillTips(localStorage.getItem(autoKillKey) === '1')
+      setAutoBuyAdvice(localStorage.getItem(autoBuyKey) !== '0')
+      setSuppressDuringCombat(localStorage.getItem(suppressCombatKey) !== '0')
+
+      const cap = parseInt(localStorage.getItem(budgetCapKey) || '0', 10)
+      setBudgetCap(Number.isFinite(cap) && cap > 0 ? cap : 0)
+      const today = new Date()
+      const usedRaw = localStorage.getItem(`coach_ai_budget_${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`)
+      setBudgetUsed(parseInt(usedRaw || '0', 10) || 0)
     } catch { }
   }, [])
+
+  const handleBudgetChange = (val: number) => {
+    setBudgetCap(val)
+    try {
+      if (val > 0) localStorage.setItem(budgetCapKey, String(val))
+      else localStorage.removeItem(budgetCapKey)
+    } catch { }
+  }
 
   const handleDurationChange = (val: number) => {
     setMessageDuration(val)
     try {
       localStorage.setItem(messageDurationKey, val.toString())
     } catch { }
+  }
+
+  const toggleFlag = (key: string, next: boolean, setter: (v: boolean) => void) => {
+    setter(next)
+    try { localStorage.setItem(key, next ? '1' : '0') } catch { }
   }
 
   const evaluatePermission = useCallback(async () => {
@@ -448,6 +483,67 @@ export default function DesktopSettingsPanel({
           {hotkeyError && <div className="mt-3 text-xs text-white/60 bg-white/5 p-2 rounded border border-white/10">{hotkeyError}</div>}
         </section>
 
+        {/* Coach AI Section */}
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wide flex items-center gap-2">
+              <Bot className="w-4 h-4 text-white/60" />
+              Coach AI
+            </h3>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-xl p-5 space-y-4">
+            {[
+              { key: autoKillKey, label: "Auto post-kill tips", desc: "Off by default. Sends at most one tip per round and only in safe windows.", value: autoKillTips, setter: setAutoKillTips },
+              { key: autoBuyKey, label: "Auto buy-phase advice", desc: "Generate a buy call each time shopping starts.", value: autoBuyAdvice, setter: setAutoBuyAdvice },
+              { key: suppressCombatKey, label: "Suppress during combat", desc: "Hold feedback until a safe window (buy / round end / dead).", value: suppressDuringCombat, setter: setSuppressDuringCombat },
+            ].map(opt => (
+              <div key={opt.key} className="flex items-center justify-between">
+                <div className="pr-4">
+                  <div className="text-sm font-bold text-white">{opt.label}</div>
+                  <div className="text-[10px] text-white/40 mt-0.5">{opt.desc}</div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={opt.value}
+                  onClick={() => toggleFlag(opt.key, !opt.value, opt.setter)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${opt.value ? 'bg-white' : 'bg-black/40 border border-white/10'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full transition-transform ${opt.value ? 'translate-x-6 bg-black' : 'translate-x-1 bg-white/70'}`} />
+                </button>
+              </div>
+            ))}
+
+            {/* Daily AI call budget */}
+            <div className="pt-4 mt-4 border-t border-white/5">
+              <div className="flex items-center justify-between mb-2">
+                <div className="pr-4">
+                  <div className="text-sm font-bold text-white">Daily AI call cap</div>
+                  <div className="text-[10px] text-white/40 mt-0.5">
+                    Hard limit for automatic prompts today. 0 disables the cap.
+                    {budgetCap > 0 && (
+                      <span className="ml-1 text-white/60">Used {budgetUsed} / {budgetCap}.</span>
+                    )}
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-white tabular-nums">
+                  {budgetCap === 0 ? 'Unlimited' : budgetCap}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={500}
+                step={10}
+                value={budgetCap}
+                onChange={(e) => handleBudgetChange(parseInt(e.target.value))}
+                className="w-full h-1.5 bg-black/40 rounded-lg appearance-none cursor-pointer accent-white"
+              />
+            </div>
+          </div>
+        </section>
+
         {/* Preferences Section */}
         <section>
           <div className="flex items-center justify-between mb-4">
@@ -496,6 +592,13 @@ export default function DesktopSettingsPanel({
               Open Overwolf Settings
             </button>
           </div>
+        </section>
+
+        {/* Riot Games Disclaimer */}
+        <section className="pt-6 border-t border-white/5 pb-2 text-center">
+          <p className="text-[9px] text-white/20 leading-relaxed font-sans max-w-md mx-auto">
+            Owned isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.
+          </p>
         </section>
       </div>
     </div>

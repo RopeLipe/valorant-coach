@@ -100,6 +100,27 @@ let recorderStream: MediaStream | null = null
 let recorderTimer: number | null = null
 let recordingSettled = false
 
+// TTS playback state. Tracked module-globally so a new speak() can stop the
+// previous one instead of the two voices talking over each other — previously
+// back-to-back prompts would play simultaneously.
+let activeAudio: HTMLAudioElement | null = null
+let activeAudioUrl: string | null = null
+
+export function cancelSpeak(): void {
+  try {
+    if (activeAudio) {
+      activeAudio.onended = null
+      activeAudio.pause()
+      activeAudio.src = ''
+    }
+  } catch { }
+  if (activeAudioUrl) {
+    try { URL.revokeObjectURL(activeAudioUrl) } catch { }
+    activeAudioUrl = null
+  }
+  activeAudio = null
+}
+
 function getSpeechRecognition(): typeof SpeechRecognition | null {
   if (typeof window === 'undefined') return null
   const w: any = window as any
@@ -494,6 +515,10 @@ export function endListening() {
 }
 
 export async function speak(text: string, opts?: { rate?: number; pitch?: number; volume?: number; targetDurationMs?: number }) {
+  // Stop any prior playback before kicking off a new one. Without this, a
+  // rapid sequence of prompts (e.g. auto buy advice + voice answer) resulted
+  // in two ElevenLabs clips overlapping on the user's speakers.
+  cancelSpeak()
   try {
     const response = await fetch('https://api.elevenlabs.io/v1/text-to-speech/G2W7Zottxtm1v2gn40VN', {
       method: 'POST',
@@ -520,8 +545,10 @@ export async function speak(text: string, opts?: { rate?: number; pitch?: number
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
+    activeAudio = audio
+    activeAudioUrl = url
 
-    if (opts?.volume) {
+    if (opts?.volume != null) {
       audio.volume = Math.min(Math.max(opts.volume, 0), 1);
     }
 
@@ -529,16 +556,9 @@ export async function speak(text: string, opts?: { rate?: number; pitch?: number
     await new Promise<void>((resolve) => {
       audio.onloadedmetadata = () => {
         if (opts?.targetDurationMs && audio.duration && audio.duration > 0) {
-          // Calculate required rate to fit in target duration
-          // duration (s) / rate = target (s)
-          // rate = duration (s) / target (s)
           const targetSeconds = opts.targetDurationMs / 1000;
           let rate = audio.duration / targetSeconds;
-
-          // Clamp rate to keep it intelligible (0.75x to 2.0x)
-          // If it's too long, we speed up max 2x. If it's too short, we slow down max 0.75x.
           rate = Math.min(Math.max(rate, 0.75), 2.0);
-
           audio.playbackRate = rate;
           voiceLog('playback_rate_adjusted', {
             originalDuration: audio.duration,
@@ -550,14 +570,18 @@ export async function speak(text: string, opts?: { rate?: number; pitch?: number
         }
         resolve();
       };
-      // Fallback if metadata fails
       audio.onerror = () => resolve();
-      // Safety timeout
       setTimeout(resolve, 1000);
     });
 
+    // Only clear state if THIS audio finished (cancelSpeak may have replaced
+    // it mid-way). Also revoke the URL regardless so we don't leak blobs.
     audio.onended = () => {
-      URL.revokeObjectURL(url);
+      if (activeAudio === audio) {
+        activeAudio = null
+        activeAudioUrl = null
+      }
+      try { URL.revokeObjectURL(url) } catch { }
     };
 
     await audio.play();

@@ -136,7 +136,7 @@ export async function example7_customSystemInstruction(storeName: string) {
 
     const options: FileSearchOptions = {
         systemInstruction: 'You are a professional esports coach specializing in Valorant. Provide detailed, tactical advice with specific examples and scenarios.',
-        model: 'gemini-2.5-flash'
+        model: 'gemini-3.1-flash-lite-preview'
     };
 
     const result = await fileSearch(

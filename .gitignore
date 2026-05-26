@@ -9,8 +9,15 @@ lerna-debug.log*
 
 node_modules
 dist
+build
 dist-ssr
 *.local
+*.opk
+diagnostic-*.txt
+diagnostic-*.json
+stores-list.json
+list-stores.js
+.agent/
 
 # Editor directories and files
 .vscode/*

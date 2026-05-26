@@ -1,3 +1,9 @@
+console.log('[Background] ====== script loaded at', new Date().toISOString(), '======');
+try {
+  (window as any).__owBgReady = true;
+  console.log('[Background] overwolf API present:', typeof (globalThis as any).overwolf !== 'undefined');
+} catch { }
+
 let valorantActive = false;
 let valorantInFocus = false;
 let overlaySuppressed = false;
@@ -13,7 +19,12 @@ const OVERLAY_MARGIN_X = 50;
 const OVERLAY_MARGIN_Y = 32;
 
 const VALORANT_ID = 21640;
+// Valorant GEP exposes only these features. `kill_feed`, `scoreboard`, `spike_*`
+// and `shop` are sub-keys/events delivered under `match_info` — they are NOT
+// independent features and asking for them causes setRequiredFeatures to fail.
+// See https://overwolf.github.io/api/live-game-data/supported-games/valorant
 const REQUIRED_FEATURES = [
+  "gep_internal",
   "me",
   "game_info",
   "match_info",
@@ -50,17 +61,22 @@ function forwardToMain(payload: any) {
 }
 
 function obtain(id: string, cb: (w: any) => void) {
-  overwolf.windows.obtainDeclaredWindow(id, (res: any) => {
-    try {
-      if (res && res.success && res.window) {
-        cb(res.window);
-      } else {
-        console.warn('[OW] obtainDeclaredWindow failed', id, res);
+  try {
+    overwolf.windows.obtainDeclaredWindow(id, (res: any) => {
+      try {
+        if (res && res.success && res.window) {
+          console.log('[OW] obtainDeclaredWindow ok', id, 'state=', res.window.stateEx || res.window.state);
+          cb(res.window);
+        } else {
+          console.warn('[OW] obtainDeclaredWindow failed', id, res);
+        }
+      } catch (e) {
+        console.error('[OW] obtainDeclaredWindow cb error', id, e);
       }
-    } catch (e) {
-      console.error('[OW] obtainDeclaredWindow error', id, e);
-    }
-  });
+    });
+  } catch (e) {
+    console.error('[OW] obtainDeclaredWindow throw', id, e);
+  }
 }
 
 let isOverlayVisible = false;
@@ -145,11 +161,25 @@ function toggleMain() {
   });
 }
 
+let desktopShowAttempts = 0;
+const MAX_DESKTOP_SHOW_ATTEMPTS = 4;
+
 function showDesktop() {
+  desktopShowAttempts++;
+  console.log('[Background] showDesktop() called, attempt', desktopShowAttempts);
   obtain('desktop', (w) => {
     try {
-      overwolf.windows.restore(w.id, () => {
-        overwolf.windows.bringToFront(w.id, false, () => { });
+      overwolf.windows.restore(w.id, (r: any) => {
+        console.log('[Background] desktop restore result:', r);
+        if (!r || r.success === false) {
+          if (desktopShowAttempts < MAX_DESKTOP_SHOW_ATTEMPTS) {
+            setTimeout(showDesktop, 1500);
+          }
+          return;
+        }
+        overwolf.windows.bringToFront(w.id, false, (bf: any) => {
+          console.log('[Background] desktop bringToFront result:', bf);
+        });
       });
     } catch (e) {
       console.error('[OW] showDesktop failed', e);
@@ -366,11 +396,19 @@ function initListeners() {
       updateMatchState(e?.info);
     } catch { }
   });
+  try {
+    overwolf.games.events.onError.addListener((err: any) => {
+      console.warn('[Background] GEP onError:', err);
+      forwardToMain({ type: 'gep_error', data: err });
+    });
+  } catch { }
   listenersAttached = true;
 }
 
 function tryInitForValorant() {
+  console.log('[Background] tryInitForValorant() called');
   overwolf.games.getRunningGameInfo((info: any) => {
+    console.log('[Background] getRunningGameInfo result:', info);
     if (isValorant(info)) {
       valorantActive = true;
       valorantInFocus = Boolean(info?.isInFocus !== false);
@@ -460,22 +498,42 @@ try {
   });
 } catch { }
 
-try { ensureOverlayEnabled(); checkHotkeyConflicts(); checkHotkeysAssigned() } catch { }
+try { ensureOverlayEnabled(); } catch (e) { console.error('[Background] ensureOverlayEnabled threw', e); }
+try { checkHotkeyConflicts(); } catch (e) { console.error('[Background] checkHotkeyConflicts threw', e); }
+try { checkHotkeysAssigned(); } catch (e) { console.error('[Background] checkHotkeysAssigned threw', e); }
 
-overwolf.windows.onMessageReceived.addListener((message: any) => {
-  if (message?.content?.type === 'request_full_state') {
-    if (valorantActive && featuresReady) {
-      requestInitialInfo();
+try {
+  overwolf.windows.onMessageReceived.addListener((message: any) => {
+    const msgType = message?.content?.type || message?.id;
+    if (msgType === 'request_full_state') {
+      if (valorantActive && featuresReady) {
+        requestInitialInfo();
+      }
+      try {
+        overwolf.settings.hotkeys.get((res: any) => {
+          forwardToMain({ type: 'hotkeys_sync', data: res });
+        });
+      } catch { }
     }
-    try {
-      overwolf.settings.hotkeys.get((res: any) => {
-        forwardToMain({ type: 'hotkeys_sync', data: res });
-      });
-    } catch { }
-  }
-});
+  });
+} catch (e) { console.error('[Background] onMessageReceived register threw', e); }
 
-tryInitForValorant();
+try {
+  tryInitForValorant();
+} catch (e) {
+  console.error('[Background] tryInitForValorant threw', e);
+  // If init path throws synchronously, still try to bring up desktop so UI is reachable.
+  try { showDesktop(); } catch { }
+}
+
+// Fallback: guarantee the desktop surfaces on manual launch even if the
+// getRunningGameInfo callback never fires or takes too long.
+setTimeout(() => {
+  if (!valorantActive && desktopShowAttempts === 0) {
+    console.warn('[Background] Fallback desktop launch (no game info yet)');
+    showDesktop();
+  }
+}, 2500);
 
 (window as any).handleOverlayRequest = (type: string) => {
   console.log('[Background] handleOverlayRequest:', type);

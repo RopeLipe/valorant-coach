@@ -27,6 +27,7 @@ export const AGENT_ID_MAP: Record<string, string> = {
     "Nox_PC_C": "Vyse",
     "Cashew_PC_C": "Tejo",
     "Terra_PC_C": "Waylay",
+    "Pine_PC_C": "Veto",
 
     // Short IDs (seen in match_info)
     "Clay": "Raze",
@@ -55,7 +56,8 @@ export const AGENT_ID_MAP: Record<string, string> = {
     "Smonk": "Clove",
     "Nox": "Vyse",
     "Cashew": "Tejo",
-    "Terra": "Waylay"
+    "Terra": "Waylay",
+    "Pine": "Veto"
 };
 
 export function getAgentName(id: string): string {
